@@ -130,6 +130,81 @@ fn release_target(repo: &str, tag: &str, commit: &str) -> Result<Target, String>
 
 /// The push refs, pull request or release to audit. `vars` carries the
 /// PROBATOR_* environment, injected so tests never mutate process state.
+/// The uncommitted working tree as a synthetic commit. The gate's
+/// working-tree audit needs a git object the snapshot machinery can read,
+/// so a scratch index materializes one without touching the real index or
+/// any ref; deterministic identity keeps an unchanged tree+parent at the
+/// same commit, which lets `audited` reuse a finished review of it.
+fn worktree_target(repo: &str, kind: &str) -> Result<Target, String> {
+    let scratch = std::env::temp_dir().join(format!(
+        "probator-index-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let indexed = |args: &[&str]| -> Result<String, String> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .env("GIT_INDEX_FILE", &scratch)
+            .args(args)
+            .output()
+            .map_err(|error| format!("Git could not snapshot the working tree: {error}"))?;
+        if !output.status.success() {
+            return Err("Git could not snapshot the working tree".to_string());
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    };
+    let base = rev(repo, "HEAD^{commit}");
+    let result = (|| {
+        indexed(&[
+            "read-tree",
+            if base.is_empty() { "--empty" } else { "HEAD" },
+        ])?;
+        indexed(&["add", "-A"])?;
+        let tree = indexed(&["write-tree"])?;
+        if tree.is_empty() {
+            return Err("Git could not snapshot the working tree".to_string());
+        }
+        let mut commit = Command::new("git");
+        commit
+            .arg("-C")
+            .arg(repo)
+            .env("GIT_AUTHOR_NAME", "probator gate-audit")
+            .env("GIT_AUTHOR_EMAIL", "probator@localhost")
+            .env("GIT_AUTHOR_DATE", "2000-01-01T00:00:00Z")
+            .env("GIT_COMMITTER_NAME", "probator gate-audit")
+            .env("GIT_COMMITTER_EMAIL", "probator@localhost")
+            .env("GIT_COMMITTER_DATE", "2000-01-01T00:00:00Z")
+            .args(["commit-tree", &tree, "-m", "gate-audit working tree"]);
+        if !base.is_empty() {
+            commit.args(["-p", &base]);
+        }
+        let output = commit
+            .output()
+            .map_err(|error| format!("Git could not snapshot the working tree: {error}"))?;
+        if !output.status.success() {
+            return Err("Git could not snapshot the working tree".to_string());
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    })();
+    let _ = std::fs::remove_file(&scratch);
+    let head = result?;
+    Ok(snapshot(
+        if kind.is_empty() {
+            "working-tree"
+        } else {
+            kind
+        },
+        "working tree".to_string(),
+        if base.is_empty() { None } else { Some(base) },
+        head,
+        None,
+    ))
+}
+
 pub fn ranges_from(
     repo: &str,
     event: &str,
@@ -142,6 +217,28 @@ pub fn ranges_from(
             .trim()
             .to_string()
     };
+    // A caller can name the review object directly: `working-tree` audits
+    // the uncommitted state, any other PROBATOR_HEAD value must resolve to
+    // a commit, and an explicit head beats the event-derived scopes below.
+    let named = var("PROBATOR_HEAD");
+    if event == "working-tree" || named == "working-tree" {
+        return Ok(vec![worktree_target(repo, event)?]);
+    }
+    if !named.is_empty() {
+        let head = rev(repo, &format!("{named}^{{commit}}"));
+        if head.is_empty() {
+            return Err(format!(
+                "The review head '{named}' does not resolve to a commit"
+            ));
+        }
+        return Ok(vec![snapshot(
+            event,
+            format!("{event} {}", &head[..12.min(head.len())]),
+            None,
+            head,
+            None,
+        )]);
+    }
     if event == "release" {
         return Ok(vec![release_target(
             repo,
@@ -243,6 +340,7 @@ pub fn ranges(repo: &str) -> Result<Vec<Target>, String> {
         "PROBATOR_PR_BASE",
         "PROBATOR_PR_NUMBER",
         "PROBATOR_PUSH_REFS",
+        "PROBATOR_HEAD",
     ] {
         if let Ok(value) = std::env::var(name) {
             vars.insert(name.to_string(), serde_json::Value::String(value));
@@ -330,5 +428,51 @@ mod tests {
             .expect("an unfetched tip still resolves");
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].base, None, "unfetched tip: whole snapshot");
+    }
+
+    #[test]
+    fn a_working_tree_event_reviews_the_uncommitted_state() {
+        let (repo, head) = Repo::new();
+        std::fs::write(repo.0.join("dirty.txt"), "dirty\n").unwrap();
+        let vars = json!({"PROBATOR_EVENT": "working-tree"})
+            .as_object()
+            .unwrap()
+            .clone();
+        let targets = ranges_from(repo.0.to_str().unwrap(), "working-tree", &vars)
+            .expect("a working tree resolves");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].base.as_deref(), Some(head.as_str()));
+        let listing = Command::new("git")
+            .arg("-C")
+            .arg(&repo.0)
+            .args(["ls-tree", "--name-only", &targets[0].head])
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&listing.stdout).contains("dirty.txt"),
+            "the synthetic commit holds the uncommitted file"
+        );
+        // Deterministic identity: an unchanged tree+parent lands on the
+        // same commit, so `audited` can reuse a finished review of it.
+        let again = ranges_from(repo.0.to_str().unwrap(), "working-tree", &vars)
+            .expect("the same working tree still resolves");
+        assert_eq!(again[0].head, targets[0].head);
+    }
+
+    #[test]
+    fn a_named_head_reviews_that_commit() {
+        let (repo, head) = Repo::new();
+        let vars = json!({"PROBATOR_HEAD": "HEAD"})
+            .as_object()
+            .unwrap()
+            .clone();
+        let targets = ranges_from(repo.0.to_str().unwrap(), "snapshot", &vars)
+            .expect("a named head resolves");
+        assert_eq!(targets[0].head, head);
+        let bad = json!({"PROBATOR_HEAD": "this-ref-does-not-exist"})
+            .as_object()
+            .unwrap()
+            .clone();
+        assert!(ranges_from(repo.0.to_str().unwrap(), "snapshot", &bad).is_err());
     }
 }

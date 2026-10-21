@@ -29,6 +29,8 @@ mod eval;
 mod evidence;
 #[path = "probator/fullservice.rs"]
 mod fullservice;
+#[path = "probator/gate_audit.rs"]
+mod gate_audit;
 // The review binary shares the main crate's git helpers and exercises only
 // the reachability probe - the rest of the module stays for that crate.
 #[allow(dead_code)]
@@ -193,6 +195,11 @@ enum Command {
         #[arg(long)]
         verbose: bool,
     },
+    /// The orchestrator-facing audit surface: one JSON action on stdin —
+    /// {kind, target, detail} — runs every policy checker bound to the
+    /// event and prints one JSON array of gate findings on stdout.
+    /// Failures are high-severity findings, never bare errors.
+    GateAudit,
     /// Show the policy Probator actually enforces: registered checkers, their
     /// contract domains, deterministic stage-1 rules and profile bindings,
     /// read from the installed configuration. --html writes a self-contained
@@ -513,6 +520,7 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Command::GateAudit => ExitCode::from(gate_audit::run() as u8),
         Command::Inspect {
             policy,
             profiles,
