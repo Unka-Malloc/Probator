@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 /// The two well-known roots every checker lives under. The profile root is
 /// Probator's own data home — checkers are independent of any other agent
 /// system's profile namespace.
-fn profile_root() -> PathBuf {
+pub(crate) fn profile_root() -> PathBuf {
     let base = std::env::var("XDG_DATA_HOME")
         .ok()
         .filter(|v| !v.trim().is_empty())

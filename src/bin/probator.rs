@@ -23,6 +23,8 @@ mod date;
 mod documents;
 #[path = "probator/engine.rs"]
 mod engine;
+#[path = "probator/eval.rs"]
+mod eval;
 #[path = "probator/evidence.rs"]
 mod evidence;
 #[path = "probator/fullservice.rs"]
@@ -171,6 +173,23 @@ enum Command {
         /// Continue an existing audit directory.
         #[arg(long)]
         resume: Option<PathBuf>,
+    },
+    /// Score recorded audit runs into a checker x architecture matrix:
+    /// productive sealed verdicts, decisive coverage and reason substance,
+    /// with cost and handshake anomalies reported alongside.
+    Eval {
+        /// The profiles root; defaults to the installed data directory.
+        #[arg(long)]
+        profiles: Option<PathBuf>,
+        /// Emit the matrix as JSON instead of a table.
+        #[arg(long)]
+        json: bool,
+        /// Hide checker/architecture cells with fewer runs than this.
+        #[arg(long, default_value = "1")]
+        min_runs: usize,
+        /// Also print one line per individual run after the matrix.
+        #[arg(long)]
+        verbose: bool,
     },
     /// Install a checker from its source directory (tools/<checker>/).
     Install {
@@ -452,6 +471,23 @@ fn main() -> ExitCode {
                 println!("{message}");
                 ExitCode::SUCCESS
             }
+            Err(message) => {
+                eprintln!("{message}");
+                ExitCode::FAILURE
+            }
+        },
+        Command::Eval {
+            profiles,
+            json,
+            min_runs,
+            verbose,
+        } => match eval::run(
+            &profiles.unwrap_or_else(install::profile_root),
+            json,
+            min_runs,
+            verbose,
+        ) {
+            Ok(code) => ExitCode::from(code as u8),
             Err(message) => {
                 eprintln!("{message}");
                 ExitCode::FAILURE
