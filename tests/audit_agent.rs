@@ -514,6 +514,68 @@ fn a_stale_resume_retries_the_same_binding_open_once() {
     assert_eq!(opens[0]["patch"], opens[1]["patch"]);
 }
 
+/// An uncertain resume open may already have reached the agent: no fresh
+/// open follows it, so the preserved conversation stays resumable and paid
+/// review progress is never discarded by a blind restart.
+#[test]
+fn an_uncertain_resume_open_never_falls_through_to_fresh() {
+    let fixture = Fixture::new("uncertain-resume");
+    std::fs::write(
+        fixture.run_dir.join("audit-session.json"),
+        json!({"session_id":"stale","session_ids":["stale"]}).to_string(),
+    )
+    .unwrap();
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "uncertain resume must refuse, not restart: {result}");
+    let opens = fixture.records("session-open.jsonl");
+    assert_eq!(opens.len(), 1, "uncertain resume must not open fresh");
+    assert_eq!(opens[0]["resume"], "stale");
+    assert!(fixture.records("session-prompt.jsonl").is_empty());
+}
+
+/// A sealed report outranks a lost `session/prompt` response: the submit tool
+/// writes report.json before the turn settles, so an uncertain transport
+/// failure after that point carries the settled verdict, not a refusal. The
+/// gate still verifies the receipt's credential before honoring it.
+#[test]
+fn a_sealed_report_survives_a_lost_prompt_response() {
+    let fixture = Fixture::new("sealed-drop");
+    std::fs::write(
+        fixture.run_dir.join("report.json"),
+        json!({"verdict":"pass","gate_status":"pending"}).to_string(),
+    )
+    .unwrap();
+    let (ok, result) = fixture.invoke();
+    assert!(ok, "sealed report must outrank the lost response: {result}");
+    assert_eq!(result["completed"], true);
+    assert_eq!(result["stop_reason"], "report_sealed");
+    assert_eq!(result["usage"]["input_tokens"], 9);
+    assert_eq!(fixture.records("session-prompt.jsonl").len(), 1);
+}
+
+/// A permanent resume refusal that is not about the session being gone -
+/// authorization, quota, anything else - must not fall through to a fresh
+/// open: the preserved conversation stays resumable instead of restarting
+/// paid work.
+#[test]
+fn a_permanent_non_stale_resume_error_never_falls_through_to_fresh() {
+    let fixture = Fixture::new("permanent-resume");
+    std::fs::write(
+        fixture.run_dir.join("audit-session.json"),
+        json!({"session_id":"kept","session_ids":["kept"]}).to_string(),
+    )
+    .unwrap();
+    let (ok, result) = fixture.invoke();
+    assert!(
+        !ok,
+        "permanent non-stale resume must refuse, not restart: {result}"
+    );
+    let opens = fixture.records("session-open.jsonl");
+    assert_eq!(opens.len(), 1, "non-stale refusal must not open fresh");
+    assert_eq!(opens[0]["resume"], "kept");
+    assert!(fixture.records("session-prompt.jsonl").is_empty());
+}
+
 #[test]
 fn an_unadmitted_serving_profile_fails_closed() {
     let mut fixture = Fixture::new("complete");

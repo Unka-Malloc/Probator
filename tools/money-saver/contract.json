@@ -2,7 +2,7 @@
   "name": "money-saver",
   "title": "Money Saver",
   "summary": "Operational cost and continuity gate: no change may silently grow cloud, storage, traffic or compute spend, or sacrifice paid work to arbitrary cutoffs.",
-  "domains": ["sql", "storage", "network", "compute", "cloudflare", "vps"],
+  "domains": ["sql", "storage", "network", "continuity", "compute", "cloudflare", "vps"],
   "finding_keys": ["file", "line", "severity", "evidence", "impact", "before_after", "remedy", "validation", "sources"],
   "finding_optional_keys": ["title"],
   "on": ["pre-push", "pr"],

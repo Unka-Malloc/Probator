@@ -290,11 +290,9 @@ fn overlay_primary(document: &mut Value, role: &awp::Profile) -> Result<(), a4aa
     Ok(())
 }
 
-fn write_pi_mcp(run_dir: &Path, servers: &[Value]) {
+fn write_pi_mcp(run_dir: &Path, servers: &[Value]) -> std::io::Result<()> {
     let pi_dir = run_dir.join(".pi");
-    if std::fs::create_dir_all(&pi_dir).is_err() {
-        return;
-    }
+    std::fs::create_dir_all(&pi_dir)?;
     let mut mcp_servers_map = Map::new();
     for server in servers {
         if let Some(name) = server["name"].as_str() {
@@ -311,10 +309,30 @@ fn write_pi_mcp(run_dir: &Path, servers: &[Value]) {
             mcp_servers_map.insert(name.to_string(), Value::Object(spec));
         }
     }
-    let _ = std::fs::write(
+    // A project entry without command/url/type overrides the same-named
+    // global server: silence every server in the user's agent mcp.json so
+    // nothing outside the declared audit surface is discoverable in the
+    // session. A declared audit server keeps its real definition.
+    let agent_dir = std::env::var_os("PI_CODING_AGENT_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pi").join("agent"))
+        });
+    if let Some(dir) = agent_dir
+        && let Ok(raw) = std::fs::read_to_string(dir.join("mcp.json"))
+        && let Ok(doc) = serde_json::from_str::<Value>(&raw)
+        && let Some(global) = doc["mcpServers"].as_object()
+    {
+        for name in global.keys() {
+            mcp_servers_map
+                .entry(name.clone())
+                .or_insert_with(|| json!({ "enabled": false }));
+        }
+    }
+    std::fs::write(
         pi_dir.join("mcp.json"),
         serde_json::to_string_pretty(&json!({ "mcpServers": mcp_servers_map })).unwrap_or_default(),
-    );
+    )
 }
 
 fn lane_admitted(document: &Value, agent: &str) -> bool {
@@ -516,6 +534,30 @@ struct Opened {
     served: Value,
 }
 
+/// Whether a resume refusal proves the stored session is gone: the adapter's
+/// own capability refusal, or a remote code that names the session as stale,
+/// unsupported or unknown. Any other permanent error keeps the preserved
+/// conversation for the next run rather than restarting paid work.
+fn is_stale_resume(error: &a4aa::AdapterError) -> bool {
+    if error.retryable || error.uncertain_effect {
+        return false;
+    }
+    if error.code == "agent_session_resume_unsupported" {
+        return true;
+    }
+    let remote = error
+        .detail
+        .as_deref()
+        .and_then(|detail| serde_json::from_str::<Value>(detail).ok())
+        .and_then(|detail| detail["remoteCode"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    let remote = remote.as_str();
+    remote.contains("resume_unsupported")
+        || remote.contains("session_not_found")
+        || remote.contains("unknown_session")
+        || remote.contains("stale")
+}
+
 async fn open_once(peer: &JsonRpcPeer, params: Value) -> Result<Value, a4aa::AdapterError> {
     peer.call("session/open", params)
         .await
@@ -654,8 +696,11 @@ async fn run(request: Request) -> a4aa::Result<Value> {
     .map_err(|_| failure("audit_va_home_unwritable", "registry/load"))?;
     // For RPC agents like pi that discover project-local MCP servers from
     // .pi/mcp.json, materialize the tool server definition into the run
-    // directory. The session/open patch carries the same servers for VA.
-    write_pi_mcp(&request.run_dir, &role.mcp_servers);
+    // directory. The session/open patch carries the same servers for VA. An
+    // unwritable config must refuse here - a run that cannot arm its declared
+    // evidence tools has no verdict worth recording.
+    write_pi_mcp(&request.run_dir, &role.mcp_servers)
+        .map_err(|_| failure("audit_mcp_config_unwritable", "run/start"))?;
     let identity = json!({"id":role.id,"revision":role.revision,
                           "principal":role.principal_id()});
     let captured_usage = Arc::new(std::sync::Mutex::new(None));
@@ -725,7 +770,18 @@ async fn run(request: Request) -> a4aa::Result<Value> {
                     break;
                 }
             },
-            Err(error) => last_error = Some(error),
+            Err(error) => {
+                // Only an explicit stale/unsupported-session refusal may fall
+                // through to a fresh open: a transport or uncertain outcome
+                // may already have reached the agent, and a permanent error
+                // that is not about the session must not orphan the preserved
+                // conversation into a paid restart either.
+                let definite_stale = is_stale_resume(&error);
+                last_error = Some(error);
+                if !definite_stale {
+                    break;
+                }
+            }
         }
     }
     let Some(opened) = opened else {
@@ -786,49 +842,28 @@ async fn run(request: Request) -> a4aa::Result<Value> {
                 .filter(|value| !value.is_null())
                 .and_then(|value| serde_json::from_value::<TokenUsage>(value).ok())
                 .map(|usage| usage_value(&usage))
-                .or_else(|| captured_usage.lock().unwrap().clone())
-                .or_else(|| extract_pi_session_usage(&request.session_file));
+                .or_else(|| captured_usage.lock().unwrap().clone());
             Ok(json!({"completed": stop_reason == "end_turn",
                       "stop_reason": stop_reason, "usage": usage,
                       "profile": identity, "served": opened.served}))
         }
-        Err(error) => Err(call_error("session/prompt", error)),
-    }
-}
-
-fn extract_pi_session_usage(session_file: &Path) -> Option<Value> {
-    let raw = std::fs::read_to_string(session_file).ok()?;
-    let json: Value = serde_json::from_str(&raw).ok()?;
-    let session_id = json["id"].as_str()?;
-    let home = std::env::var("HOME").ok()?;
-    let sessions_dir = PathBuf::from(home).join(".pi/agent/sessions");
-    for entry in std::fs::read_dir(sessions_dir).ok()?.flatten() {
-        if entry.file_type().ok()?.is_dir() {
-            for file in std::fs::read_dir(entry.path()).ok()?.flatten() {
-                let name = file.file_name().to_string_lossy().to_string();
-                if name.contains(session_id)
-                    && name.ends_with(".jsonl")
-                    && let Ok(content) = std::fs::read_to_string(file.path())
-                {
-                    for line in content.lines().rev() {
-                        if let Ok(msg) = serde_json::from_str::<Value>(line)
-                            && let Some(u) = msg.pointer("/message/usage")
-                            && let (Some(inp), Some(out)) =
-                                (u["input"].as_u64(), u["output"].as_u64())
-                        {
-                            return Some(json!({
-                                "input_tokens": inp,
-                                "output_tokens": out,
-                                "cache_read_tokens": u["cacheRead"].as_u64().unwrap_or(0),
-                                "cache_write_tokens": u["cacheWrite"].as_u64().unwrap_or(0),
-                            }));
-                        }
-                    }
-                }
+        Err(error) => {
+            // A sealed verdict on disk outranks a lost prompt response: the
+            // submit tool writes report.json before the turn settles, so an
+            // uncertain transport error after that point did not lose the
+            // review. The gate verifies the receipt's credential itself;
+            // reporting the settled report here keeps one flaky handshake
+            // from discarding paid work.
+            let error = call_error("session/prompt", error);
+            if error.uncertain_effect && request.run_dir.join("report.json").exists() {
+                let usage = captured_usage.lock().unwrap().clone();
+                Ok(json!({"completed": true, "stop_reason": "report_sealed",
+                          "usage": usage, "profile": identity, "served": opened.served}))
+            } else {
+                Err(error)
             }
         }
     }
-    None
 }
 
 fn failure(code: &'static str, stage: &'static str) -> a4aa::AdapterError {

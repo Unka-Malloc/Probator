@@ -1062,6 +1062,10 @@
             "status": "reviewed",
             "reason": "looked"
           },
+          "continuity": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
           "compute": {
             "status": "reviewed",
             "reason": "looked"
@@ -1106,6 +1110,10 @@
             "reason": "looked"
           },
           "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "continuity": {
             "status": "reviewed",
             "reason": "looked"
           },
@@ -1170,6 +1178,10 @@
             "status": "reviewed",
             "reason": "looked"
           },
+          "continuity": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
           "compute": {
             "status": "reviewed",
             "reason": "looked"
@@ -1213,6 +1225,10 @@
             "reason": "looked"
           },
           "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "continuity": {
             "status": "reviewed",
             "reason": "looked"
           },
@@ -1262,6 +1278,10 @@
             "status": "reviewed",
             "reason": "looked"
           },
+          "continuity": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
           "compute": {
             "status": "reviewed",
             "reason": "looked"
@@ -1304,6 +1324,10 @@
             "status": "reviewed",
             "reason": "looked"
           },
+          "continuity": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
           "compute": {
             "status": "reviewed",
             "reason": "looked"
@@ -1330,7 +1354,7 @@
         "https://example.invalid/pricing"
       ],
       "expected": {
-        "error": "Account for every domain: sql, storage, network, compute, cloudflare, vps"
+        "error": "Account for every domain: sql, storage, network, continuity, compute, cloudflare, vps"
       }
     },
     "unknowns-not-list": {
@@ -1347,6 +1371,10 @@
             "reason": "looked"
           },
           "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "continuity": {
             "status": "reviewed",
             "reason": "looked"
           },
@@ -1393,6 +1421,10 @@
             "reason": "looked"
           },
           "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "continuity": {
             "status": "reviewed",
             "reason": "looked"
           },
@@ -1452,6 +1484,10 @@
             "reason": "looked"
           },
           "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "continuity": {
             "status": "reviewed",
             "reason": "looked"
           },
@@ -1515,6 +1551,10 @@
             "status": "reviewed",
             "reason": "looked"
           },
+          "continuity": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
           "compute": {
             "status": "reviewed",
             "reason": "looked"
@@ -1572,6 +1612,10 @@
             "reason": "looked"
           },
           "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "continuity": {
             "status": "reviewed",
             "reason": "looked"
           },
@@ -1635,6 +1679,10 @@
             "status": "reviewed",
             "reason": "looked"
           },
+          "continuity": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
           "compute": {
             "status": "reviewed",
             "reason": "looked"
@@ -1695,6 +1743,10 @@
             "status": "reviewed",
             "reason": "looked"
           },
+          "continuity": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
           "compute": {
             "status": "reviewed",
             "reason": "looked"
@@ -1736,6 +1788,10 @@
             "reason": "looked"
           },
           "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "continuity": {
             "status": "reviewed",
             "reason": "looked"
           },
@@ -1799,6 +1855,10 @@
             "status": "unknown",
             "reason": "looked"
           },
+          "continuity": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
           "compute": {
             "status": "unknown",
             "reason": "looked"
@@ -1840,6 +1900,10 @@
             "reason": "looked"
           },
           "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "continuity": {
             "status": "reviewed",
             "reason": "looked"
           },
@@ -1886,6 +1950,10 @@
             "status": "reviewed",
             "reason": "looked"
           },
+          "continuity": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
           "compute": {
             "status": "reviewed",
             "reason": "looked"
@@ -1926,6 +1994,10 @@
             "reason": "looked"
           },
           "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "continuity": {
             "status": "reviewed",
             "reason": "looked"
           },
@@ -1986,6 +2058,10 @@
             "reason": "looked"
           },
           "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "continuity": {
             "status": "reviewed",
             "reason": "looked"
           },

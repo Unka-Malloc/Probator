@@ -534,6 +534,7 @@
           "sql",
           "storage",
           "network",
+          "continuity",
           "compute",
           "cloudflare",
           "vps"

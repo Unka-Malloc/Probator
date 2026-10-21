@@ -285,6 +285,27 @@
               ],
               "additionalProperties": false
             },
+            "continuity": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
             "compute": {
               "type": "object",
               "properties": {
@@ -353,6 +374,7 @@
             "sql",
             "storage",
             "network",
+            "continuity",
             "compute",
             "cloudflare",
             "vps"
@@ -488,6 +510,12 @@
             "additionalProperties": false
           }
         },
+        "unknowns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "projects": {
           "type": "object",
           "properties": {
@@ -517,12 +545,6 @@
             "demo-app"
           ],
           "additionalProperties": false
-        },
-        "unknowns": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
         }
       },
       "required": [
