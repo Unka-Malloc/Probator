@@ -34,6 +34,8 @@ mod fullservice;
 #[allow(dead_code)]
 #[path = "../git.rs"]
 mod git;
+#[path = "probator/inspect.rs"]
+mod inspect;
 #[path = "probator/install.rs"]
 mod install;
 #[path = "probator/manifest.rs"]
@@ -190,6 +192,24 @@ enum Command {
         /// Also print one line per individual run after the matrix.
         #[arg(long)]
         verbose: bool,
+    },
+    /// Show the policy Probator actually enforces: registered checkers, their
+    /// contract domains, deterministic stage-1 rules and profile bindings,
+    /// read from the installed configuration. --html writes a self-contained
+    /// document; --json is the machine form.
+    Inspect {
+        /// The checkers.toml policy file; defaults to the config location.
+        #[arg(long)]
+        policy: Option<PathBuf>,
+        /// The profiles root; defaults to the installed data directory.
+        #[arg(long)]
+        profiles: Option<PathBuf>,
+        /// Emit the registry as JSON instead of a listing.
+        #[arg(long)]
+        json: bool,
+        /// Write a self-contained HTML policy document to this path.
+        #[arg(long)]
+        html: Option<PathBuf>,
     },
     /// Install a checker from its source directory (tools/<checker>/).
     Install {
@@ -486,6 +506,23 @@ fn main() -> ExitCode {
             json,
             min_runs,
             verbose,
+        ) {
+            Ok(code) => ExitCode::from(code as u8),
+            Err(message) => {
+                eprintln!("{message}");
+                ExitCode::FAILURE
+            }
+        },
+        Command::Inspect {
+            policy,
+            profiles,
+            json,
+            html,
+        } => match inspect::run(
+            &policy.unwrap_or_else(install::policy_file),
+            &profiles.unwrap_or_else(install::profile_root),
+            json,
+            html.as_deref(),
         ) {
             Ok(code) => ExitCode::from(code as u8),
             Err(message) => {

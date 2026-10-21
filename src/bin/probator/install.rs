@@ -53,7 +53,7 @@ fn config_file() -> PathBuf {
 /// The audit policy lives in its own signed file beside the routing table, so
 /// audits can run before the routing table is asked for a blessing. The
 /// sibling convention matches `Policy::path_for` in the main binary.
-fn policy_file() -> PathBuf {
+pub(crate) fn policy_file() -> PathBuf {
     config_file()
         .parent()
         .unwrap_or_else(|| Path::new("."))
