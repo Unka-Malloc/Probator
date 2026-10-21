@@ -1,0 +1,58 @@
+[
+  {
+    "name": "full-maintainer",
+    "checker": "sustainable-maintainer",
+    "snapshot": {
+      "files": {
+        "app/src/main.rs": "fn main() {\n    let needle = 1;\n}\n",
+        "app/src/big.rs": {"lines": 450},
+        "app/docs/guide.md": "# guide\nbeta here\n",
+        "app-copy/src/main.rs": "fn main() {\n    let needle = 1;\n}\n"
+      },
+      "aliases": {"app-copy/src/main.rs": "app/src/main.rs"},
+      "projects": {
+        "app": {"source_files": 3, "scope": "synthetic"},
+        "app-copy": {"source_files": 1, "scope": "synthetic", "identical_source_reused_from": "app", "identical_files": 1, "distinct_files": 0}
+      }
+    },
+    "request": {"conversation_url": "https://example.invalid/thread/1", "messages": []},
+    "script": [
+      {"call": {"operation": "inventory"}},
+      {"call": {"operation": "list"}},
+      {"call": {"operation": "list", "pattern": "app/src/*"}},
+      {"call": {"operation": "list", "offset": 2}},
+      {"call": {"operation": "read", "path": "app/src/main.rs"}},
+      {"call": {"operation": "read", "path": "app/src/big.rs", "start": 380}},
+      {"call": {"operation": "read", "path": "app-copy/src/main.rs"}},
+      {"call": {"operation": "read", "path": "app/src/ghost.rs"}},
+      {"call": {"operation": "find", "text": "needle"}},
+      {"call": {"operation": "find", "text": "BETA|fn main"}},
+      {"call": {"operation": "find", "text": "line", "path": "app/src"}},
+      {"call": {"operation": "find", "text": "line", "path": "app/src/big.rs"}},
+      {"call": {"operation": "find", "text": "line", "offset": 100}},
+      {"call": {"operation": "find"}},
+      {"call": {"operation": "diff", "path": "app/src/main.rs"}},
+      {"call": {"operation": "original_request"}},
+      {"call": {"operation": "bogosity"}}
+    ]
+  },
+  {
+    "name": "full-money",
+    "checker": "money-saver",
+    "snapshot": {
+      "files": {
+        "app/server.py": "import time\nwhile True:\n    time.sleep(1)\n",
+        "app/db.py": "SELECT 1;\n"
+      },
+      "aliases": {},
+      "projects": {"app": {"source_files": 2, "scope": "synthetic"}}
+    },
+    "request": {"conversation_url": "https://example.invalid/thread/2", "messages": [{"role": "user", "content": "audit"}]},
+    "script": [
+      {"call": {"operation": "inventory"}},
+      {"call": {"operation": "original_request"}},
+      {"call": {"operation": "find", "text": "sleep|SELECT"}},
+      {"call": {"operation": "read", "path": "app/server.py", "start": 2}}
+    ]
+  }
+]

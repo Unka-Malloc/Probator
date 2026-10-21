@@ -1,0 +1,50 @@
+{
+  "private-key-block": {
+    "sanitize": "[PRIVATE_KEY]\n\n\n\nafter",
+    "sanitize_source": "[PRIVATE_KEY]\n\n\n\nafter"
+  },
+  "credential-shapes": {
+    "sanitize": "key [CREDENTIAL] and [CREDENTIAL] and [CREDENTIAL] and [CREDENTIAL] done",
+    "sanitize_source": "key [CREDENTIAL] and [CREDENTIAL] and [CREDENTIAL] and [CREDENTIAL] done"
+  },
+  "key-value-pairs": {
+    "sanitize": "api_key = \"[REDACTED]\"\npassword: \"[REDACTED]\"\nauthorization=\"[REDACTED]\"",
+    "sanitize_source": "api_key = [REDACTED]\npassword: [REDACTED]\nauthorization=\"[REDACTED]\""
+  },
+  "bearer-token": {
+    "sanitize": "Authorization: Bearer [REDACTED] ok\nand Bearer [REDACTED] too",
+    "sanitize_source": "Authorization: Bearer [REDACTED] ok\nand Bearer [REDACTED] too"
+  },
+  "local-paths": {
+    "sanitize": "report at [LOCAL_PATH] and [LOCAL_PATH] and [LOCAL_PATH] and [LOCAL_PATH] and [LOCAL_PATH] done",
+    "sanitize_source": "report at [LOCAL_PATH] and [LOCAL_PATH] and [LOCAL_PATH] and [LOCAL_PATH] and [LOCAL_PATH] done"
+  },
+  "email": {
+    "sanitize": "contact [EMAIL] or [EMAIL] end",
+    "sanitize_source": "contact [EMAIL] or [EMAIL] end"
+  },
+  "private-ips": {
+    "sanitize": "[PRIVATE_IP] and [PRIVATE_IP] and [PRIVATE_IP] and [PRIVATE_IP] stay private; 8.8.8.8 and 172.15.0.1 are public",
+    "sanitize_source": "[PRIVATE_IP] and [PRIVATE_IP] and [PRIVATE_IP] and [PRIVATE_IP] stay private; [IP_ADDRESS] and [IP_ADDRESS] are public"
+  },
+  "urls": {
+    "sanitize": "see https://example.com/path?q=1 and wss://socket.example.org/ and http://plain.example.net/ done",
+    "sanitize_source": "see https://[ENDPOINT] and wss://[ENDPOINT] and http://[ENDPOINT] done"
+  },
+  "account-identifiers": {
+    "sanitize": "account_id = \"acc-123\" zone_id: 'zone-9' tenant_id=\"t-1\" database_id = \"db-7\"",
+    "sanitize_source": "account_id = \"[IDENTIFIER]\" zone_id: \"[IDENTIFIER]\" tenant_id=\"[IDENTIFIER]\" database_id = \"[IDENTIFIER]\""
+  },
+  "env-lines": {
+    "sanitize": "API_TOKEN=abc123\n- DB_PASSWORD: hunter2\n  SECRET_KEY:   s3cr3t # comment\nNORMAL=keep",
+    "sanitize_source": "API_TOKEN=[REDACTED]\n- DB_PASSWORD: [REDACTED]\n  SECRET_KEY:   [REDACTED] # comment\nNORMAL=keep"
+  },
+  "combined": {
+    "sanitize": "fetch https://api.example.com for [EMAIL] with [CREDENTIAL]",
+    "sanitize_source": "fetch https://[ENDPOINT] for [EMAIL] with [CREDENTIAL]"
+  },
+  "unchanged": {
+    "sanitize": "fn main() { println!(\"hello\"); } // no secrets here",
+    "sanitize_source": "fn main() { println!(\"hello\"); } // no secrets here"
+  }
+}

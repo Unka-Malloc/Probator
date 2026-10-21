@@ -1,0 +1,50 @@
+[
+  {
+    "name": "private-key-block",
+    "input": "b64:LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0KbGluZSBvbmUKbGluZSB0d28KLS0tLS1FTkQgT1BFTlNTSCBQUklWQVRFIEtFWS0tLS0tCmFmdGVy"
+  },
+  {
+    "name": "credential-shapes",
+    "input": "b64:a2V5IHNrLWFiY2RlZmdoaWprbG1ub3AgYW5kIGdocF8wMTIzNDU2Nzg5YWJjZGVmZ2hpaiBhbmQgQUtJQUlPU0ZPRE5ON0VYQU1QTEUgYW5kIGdpdGh1Yl9wYXRfMDEyMzQ1Njc4OWFiY2RlZmdoaWogZG9uZQ=="
+  },
+  {
+    "name": "key-value-pairs",
+    "input": "api_key = \"verysecret\"\npassword: 'also secret'\nauthorization=\"token value\""
+  },
+  {
+    "name": "bearer-token",
+    "input": "Authorization: Bearer abc.def-ghi_~+/= ok\nand bearer XYZ.123 too"
+  },
+  {
+    "name": "local-paths",
+    "input": "report at /Users/someone/x/report.json and /var/folders/ab/cd/T/run and /home/other/notes.txt and C:\\Users\\who\\x and C:/Users/who/y done"
+  },
+  {
+    "name": "email",
+    "input": "contact admin@example.com or a.b+tag@sub.example.org end"
+  },
+  {
+    "name": "private-ips",
+    "input": "10.0.0.8 and 192.168.1.1 and 172.16.5.4 and 172.31.255.255 stay private; 8.8.8.8 and 172.15.0.1 are public"
+  },
+  {
+    "name": "urls",
+    "input": "see https://example.com/path?q=1 and wss://socket.example.org/ and http://plain.example.net/ done"
+  },
+  {
+    "name": "account-identifiers",
+    "input": "account_id = \"acc-123\" zone_id: 'zone-9' tenant_id=\"t-1\" database_id = \"db-7\""
+  },
+  {
+    "name": "env-lines",
+    "input": "API_TOKEN=abc123\n- DB_PASSWORD: hunter2\n  SECRET_KEY:   s3cr3t # comment\nNORMAL=keep"
+  },
+  {
+    "name": "combined",
+    "input": "fetch https://api.example.com for admin@example.com with sk-0123456789abcdef"
+  },
+  {
+    "name": "unchanged",
+    "input": "fn main() { println!(\"hello\"); } // no secrets here"
+  }
+]

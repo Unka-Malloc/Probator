@@ -1,0 +1,538 @@
+[
+  {
+    "name": "money_context",
+    "description": "Inspect immutable source. Start with inventory for review mode and scope. Commit mode requires every changed diff; full mode requires original_request and per-project coverage. read is 400 lines with start; find/list use pattern glob and offset pagination. Full-mode find supports literal alternatives separated by |.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "enum": [
+            "inventory",
+            "original_request",
+            "list",
+            "diff",
+            "read",
+            "find"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "start": {
+          "type": "integer"
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "revision": {
+          "type": "string",
+          "enum": [
+            "staged",
+            "base"
+          ]
+        }
+      },
+      "required": [
+        "operation"
+      ]
+    }
+  },
+  {
+    "name": "money_official_doc",
+    "description": "Fetch an official reference by exact catalog key or listed URL. Cached once per review; offset pages through the same response.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": [
+            "workers-pricing",
+            "workers-streams",
+            "workers-cache",
+            "d1-pricing",
+            "d1-indexes",
+            "d1-batch",
+            "durable-objects-pricing",
+            "durable-objects-hibernation",
+            "kv-pricing",
+            "r2-pricing",
+            "queues-pricing",
+            "sqlite-query-planner",
+            "sqlite-wal",
+            "postgres-explain",
+            "postgres-indexes",
+            "mysql-optimization",
+            "nginx-proxy",
+            "hetzner-traffic",
+            "digitalocean-bandwidth",
+            "vultr-bandwidth",
+            "lightsail-pricing",
+            "aws-pricing",
+            "aws-ec2-pricing",
+            "aws-data-transfer-pricing",
+            "aws-ebs-pricing",
+            "aws-s3-pricing",
+            "aws-lambda-pricing",
+            "aws-fargate-pricing",
+            "aws-ecs-pricing",
+            "aws-eks-pricing",
+            "aws-rds-pricing",
+            "aws-dynamodb-pricing",
+            "aws-elb-pricing",
+            "aws-cloudfront-pricing",
+            "aws-api-gateway-pricing",
+            "aws-sqs-pricing",
+            "aws-sns-pricing",
+            "aws-route53-pricing",
+            "aws-cloudwatch-pricing",
+            "gcp-pricing",
+            "gcp-compute-pricing",
+            "gcp-disk-pricing",
+            "gcp-network-pricing",
+            "gcp-storage-pricing",
+            "gcp-cloud-sql-pricing",
+            "gcp-firestore-pricing",
+            "gcp-bigquery-pricing",
+            "gcp-run-pricing",
+            "gcp-gke-pricing",
+            "gcp-pubsub-pricing",
+            "gcp-cdn-pricing",
+            "azure-pricing",
+            "azure-vm-pricing",
+            "azure-managed-disks-pricing",
+            "azure-bandwidth-pricing",
+            "azure-blob-storage-pricing",
+            "azure-sql-database-pricing",
+            "azure-cosmos-db-pricing",
+            "azure-functions-pricing",
+            "azure-app-service-pricing",
+            "azure-aks-pricing",
+            "azure-front-door-pricing",
+            "deepseek-pricing",
+            "raft-library",
+            "pebble-checkpoint",
+            "sqlite-fts5",
+            "reqwest-client-timeout",
+            "http-semantics",
+            "eventsource",
+            "https://developers.cloudflare.com/workers/platform/pricing/index.md",
+            "https://developers.cloudflare.com/workers/runtime-apis/streams/index.md",
+            "https://developers.cloudflare.com/workers/runtime-apis/cache/index.md",
+            "https://developers.cloudflare.com/d1/platform/pricing/index.md",
+            "https://developers.cloudflare.com/d1/best-practices/use-indexes/index.md",
+            "https://developers.cloudflare.com/d1/worker-api/d1-database/index.md",
+            "https://developers.cloudflare.com/durable-objects/platform/pricing/index.md",
+            "https://developers.cloudflare.com/durable-objects/best-practices/websockets/index.md",
+            "https://developers.cloudflare.com/kv/platform/pricing/index.md",
+            "https://developers.cloudflare.com/r2/pricing/index.md",
+            "https://developers.cloudflare.com/queues/platform/pricing/index.md",
+            "https://www.sqlite.org/queryplanner.html",
+            "https://www.sqlite.org/wal.html",
+            "https://www.postgresql.org/docs/current/using-explain.html",
+            "https://www.postgresql.org/docs/current/indexes.html",
+            "https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/optimization-indexes.html",
+            "https://nginx.org/en/docs/http/ngx_http_proxy_module.html",
+            "https://docs.hetzner.com/cloud/billing/faq/",
+            "https://docs.digitalocean.com/platform/billing/bandwidth/",
+            "https://docs.vultr.com/support/platform/billing/how-is-bandwidth-usage-calculated",
+            "https://aws.amazon.com/lightsail/pricing/",
+            "https://aws.amazon.com/pricing/",
+            "https://aws.amazon.com/ec2/pricing/on-demand/",
+            "https://aws.amazon.com/ec2/pricing/on-demand/#Data_Transfer",
+            "https://aws.amazon.com/ebs/pricing/",
+            "https://aws.amazon.com/s3/pricing/",
+            "https://aws.amazon.com/lambda/pricing/",
+            "https://aws.amazon.com/fargate/pricing/",
+            "https://aws.amazon.com/ecs/pricing/",
+            "https://aws.amazon.com/eks/pricing/",
+            "https://aws.amazon.com/rds/pricing/",
+            "https://aws.amazon.com/dynamodb/pricing/",
+            "https://aws.amazon.com/elasticloadbalancing/pricing/",
+            "https://aws.amazon.com/cloudfront/pricing/",
+            "https://aws.amazon.com/api-gateway/pricing/",
+            "https://aws.amazon.com/sqs/pricing/",
+            "https://aws.amazon.com/sns/pricing/",
+            "https://aws.amazon.com/route53/pricing/",
+            "https://aws.amazon.com/cloudwatch/pricing/",
+            "https://cloud.google.com/pricing",
+            "https://cloud.google.com/compute/pricing",
+            "https://cloud.google.com/compute/disks-image-pricing",
+            "https://cloud.google.com/vpc/network-pricing",
+            "https://cloud.google.com/storage/pricing",
+            "https://cloud.google.com/sql/pricing",
+            "https://cloud.google.com/firestore/pricing",
+            "https://cloud.google.com/bigquery/pricing",
+            "https://cloud.google.com/run/pricing",
+            "https://cloud.google.com/kubernetes-engine/pricing",
+            "https://cloud.google.com/pubsub/pricing",
+            "https://cloud.google.com/cdn/pricing",
+            "https://azure.microsoft.com/pricing/",
+            "https://azure.microsoft.com/pricing/details/virtual-machines/linux/",
+            "https://azure.microsoft.com/pricing/details/managed-disks/",
+            "https://azure.microsoft.com/pricing/details/bandwidth/",
+            "https://azure.microsoft.com/pricing/details/storage/blobs/",
+            "https://azure.microsoft.com/pricing/details/sql-database/single/",
+            "https://azure.microsoft.com/pricing/details/cosmos-db/",
+            "https://azure.microsoft.com/pricing/details/functions/",
+            "https://azure.microsoft.com/pricing/details/app-service/linux/",
+            "https://azure.microsoft.com/pricing/details/kubernetes-service/",
+            "https://azure.microsoft.com/pricing/details/frontdoor/",
+            "https://api-docs.deepseek.com/quick_start/pricing/",
+            "https://raw.githubusercontent.com/etcd-io/raft/main/README.md",
+            "https://pkg.go.dev/github.com/cockroachdb/pebble",
+            "https://www.sqlite.org/fts5.html",
+            "https://docs.rs/reqwest/0.12.28/reqwest/struct.ClientBuilder.html",
+            "https://www.rfc-editor.org/rfc/rfc9110.html",
+            "https://html.spec.whatwg.org/multipage/server-sent-events.html"
+          ]
+        },
+        "offset": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  },
+  {
+    "name": "money_submit_review",
+    "description": "Submit the final cost decision once. Follow the Money Saver policy's evidence and coverage contract.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "block",
+            "incomplete"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "coverage": {
+          "type": "object",
+          "properties": {
+            "sql": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "storage": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "network": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "compute": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "cloudflare": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "vps": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "sql",
+            "storage",
+            "network",
+            "compute",
+            "cloudflare",
+            "vps"
+          ],
+          "additionalProperties": false
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "blocking",
+                  "advisory"
+                ]
+              },
+              "evidence": {
+                "type": "string"
+              },
+              "impact": {
+                "type": "string"
+              },
+              "before_after": {
+                "type": "string"
+              },
+              "remedy": {
+                "type": "string"
+              },
+              "validation": {
+                "type": "string"
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "https://developers.cloudflare.com/workers/platform/pricing/index.md",
+                    "https://developers.cloudflare.com/workers/runtime-apis/streams/index.md",
+                    "https://developers.cloudflare.com/workers/runtime-apis/cache/index.md",
+                    "https://developers.cloudflare.com/d1/platform/pricing/index.md",
+                    "https://developers.cloudflare.com/d1/best-practices/use-indexes/index.md",
+                    "https://developers.cloudflare.com/d1/worker-api/d1-database/index.md",
+                    "https://developers.cloudflare.com/durable-objects/platform/pricing/index.md",
+                    "https://developers.cloudflare.com/durable-objects/best-practices/websockets/index.md",
+                    "https://developers.cloudflare.com/kv/platform/pricing/index.md",
+                    "https://developers.cloudflare.com/r2/pricing/index.md",
+                    "https://developers.cloudflare.com/queues/platform/pricing/index.md",
+                    "https://www.sqlite.org/queryplanner.html",
+                    "https://www.sqlite.org/wal.html",
+                    "https://www.postgresql.org/docs/current/using-explain.html",
+                    "https://www.postgresql.org/docs/current/indexes.html",
+                    "https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/optimization-indexes.html",
+                    "https://nginx.org/en/docs/http/ngx_http_proxy_module.html",
+                    "https://docs.hetzner.com/cloud/billing/faq/",
+                    "https://docs.digitalocean.com/platform/billing/bandwidth/",
+                    "https://docs.vultr.com/support/platform/billing/how-is-bandwidth-usage-calculated",
+                    "https://aws.amazon.com/lightsail/pricing/",
+                    "https://aws.amazon.com/pricing/",
+                    "https://aws.amazon.com/ec2/pricing/on-demand/",
+                    "https://aws.amazon.com/ec2/pricing/on-demand/#Data_Transfer",
+                    "https://aws.amazon.com/ebs/pricing/",
+                    "https://aws.amazon.com/s3/pricing/",
+                    "https://aws.amazon.com/lambda/pricing/",
+                    "https://aws.amazon.com/fargate/pricing/",
+                    "https://aws.amazon.com/ecs/pricing/",
+                    "https://aws.amazon.com/eks/pricing/",
+                    "https://aws.amazon.com/rds/pricing/",
+                    "https://aws.amazon.com/dynamodb/pricing/",
+                    "https://aws.amazon.com/elasticloadbalancing/pricing/",
+                    "https://aws.amazon.com/cloudfront/pricing/",
+                    "https://aws.amazon.com/api-gateway/pricing/",
+                    "https://aws.amazon.com/sqs/pricing/",
+                    "https://aws.amazon.com/sns/pricing/",
+                    "https://aws.amazon.com/route53/pricing/",
+                    "https://aws.amazon.com/cloudwatch/pricing/",
+                    "https://cloud.google.com/pricing",
+                    "https://cloud.google.com/compute/pricing",
+                    "https://cloud.google.com/compute/disks-image-pricing",
+                    "https://cloud.google.com/vpc/network-pricing",
+                    "https://cloud.google.com/storage/pricing",
+                    "https://cloud.google.com/sql/pricing",
+                    "https://cloud.google.com/firestore/pricing",
+                    "https://cloud.google.com/bigquery/pricing",
+                    "https://cloud.google.com/run/pricing",
+                    "https://cloud.google.com/kubernetes-engine/pricing",
+                    "https://cloud.google.com/pubsub/pricing",
+                    "https://cloud.google.com/cdn/pricing",
+                    "https://azure.microsoft.com/pricing/",
+                    "https://azure.microsoft.com/pricing/details/virtual-machines/linux/",
+                    "https://azure.microsoft.com/pricing/details/managed-disks/",
+                    "https://azure.microsoft.com/pricing/details/bandwidth/",
+                    "https://azure.microsoft.com/pricing/details/storage/blobs/",
+                    "https://azure.microsoft.com/pricing/details/sql-database/single/",
+                    "https://azure.microsoft.com/pricing/details/cosmos-db/",
+                    "https://azure.microsoft.com/pricing/details/functions/",
+                    "https://azure.microsoft.com/pricing/details/app-service/linux/",
+                    "https://azure.microsoft.com/pricing/details/kubernetes-service/",
+                    "https://azure.microsoft.com/pricing/details/frontdoor/",
+                    "https://api-docs.deepseek.com/quick_start/pricing/",
+                    "https://raw.githubusercontent.com/etcd-io/raft/main/README.md",
+                    "https://pkg.go.dev/github.com/cockroachdb/pebble",
+                    "https://www.sqlite.org/fts5.html",
+                    "https://docs.rs/reqwest/0.12.28/reqwest/struct.ClientBuilder.html",
+                    "https://www.rfc-editor.org/rfc/rfc9110.html",
+                    "https://html.spec.whatwg.org/multipage/server-sent-events.html"
+                  ]
+                }
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "file",
+              "line",
+              "severity",
+              "evidence",
+              "impact",
+              "before_after",
+              "remedy",
+              "validation",
+              "sources"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "projects": {
+          "type": "object",
+          "properties": {
+            "demo-app": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "demo-app"
+          ],
+          "additionalProperties": false
+        },
+        "unknowns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "verdict",
+        "summary",
+        "coverage",
+        "findings",
+        "unknowns",
+        "projects"
+      ]
+    }
+  }
+]

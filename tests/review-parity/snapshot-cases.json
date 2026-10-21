@@ -1,0 +1,39 @@
+[
+  {
+    "name": "money-basic",
+    "checker": "money-saver",
+    "projects": {
+      "app": {
+        "src/main.py": "import os\nprint(os.environ.get('HOME'))\n",
+        "README.md": "# app\n",
+        "docs/guide.md": "a guide\n",
+        "assets/logo.png": "PNGfake\n",
+        ".env": "SECRET=x\n",
+        "node_modules/x/index.js": "x\n",
+        "src/secrets.py": "API_TOKEN = \"tok-1234567890abcdef\"\n",
+        "src/lib.min.js": "min\n",
+        "wrangler.toml": "name = \"app\"\n"
+      }
+    }
+  },
+  {
+    "name": "maintainer-reuse",
+    "checker": "sustainable-maintainer",
+    "projects": {
+      "app": {
+        "src/main.rs": "fn main() {}\n",
+        "docs/guide.md": "# guide\n",
+        "package-lock.json": "{}\n",
+        "Cargo.lock": "# lock\n"
+      },
+      "app-copy": {
+        "src/main.rs": "fn main() {}\n",
+        "docs/guide.md": "# guide\n",
+        "package-lock.json": "{}\n",
+        "Cargo.lock": "# lock\n",
+        "src/extra.rs": "fn extra() {}\n"
+      }
+    },
+    "reuse": {"app-copy": "app"}
+  }
+]

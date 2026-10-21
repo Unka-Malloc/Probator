@@ -1,0 +1,567 @@
+{
+  "clean-credentials": {
+    "clean-auditor": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case clean-credentials",
+          "scope": "range",
+          "fallback": "",
+          "status": "credential-shape",
+          "findings": 4,
+          "hits": [
+            {
+              "path": "src/app.py",
+              "line": 1,
+              "rule": "openai-key"
+            },
+            {
+              "path": "src/aws.py",
+              "line": 1,
+              "rule": "aws-access-key"
+            },
+            {
+              "path": "src/github.py",
+              "line": 1,
+              "rule": "github-token"
+            },
+            {
+              "path": "src/keys.pem.txt",
+              "line": 1,
+              "rule": "private-key-block"
+            }
+          ],
+          "refused": "credential-shape"
+        }
+      ]
+    }
+  },
+  "clean-withheld": {
+    "clean-auditor": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case clean-withheld",
+          "scope": "range",
+          "fallback": "",
+          "status": "withheld-name",
+          "findings": 1,
+          "hits": [
+            {
+              "path": "docs/plan.md",
+              "line": 1,
+              "rule": "withheld-name"
+            }
+          ],
+          "refused": "withheld-name"
+        }
+      ]
+    }
+  },
+  "clean-withheld-except": {
+    "clean-auditor": {
+      "ok": true,
+      "summaries": [
+        {
+          "label": "case clean-withheld-except",
+          "scope": "range",
+          "fallback": "",
+          "status": "clean",
+          "findings": 0,
+          "hits": [],
+          "refused": ""
+        }
+      ]
+    }
+  },
+  "clean-none": {
+    "clean-auditor": {
+      "ok": true,
+      "summaries": [
+        {
+          "label": "case clean-none",
+          "scope": "range",
+          "fallback": "",
+          "status": "clean",
+          "findings": 0,
+          "hits": [],
+          "refused": ""
+        }
+      ]
+    }
+  },
+  "maintainer-conflict": {
+    "sustainable-maintainer": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case maintainer-conflict",
+          "scope": "range",
+          "fallback": "",
+          "status": "refused",
+          "findings": 3,
+          "hits": [
+            {
+              "path": "src/a.rs",
+              "line": 2,
+              "rule": "conflict-marker"
+            },
+            {
+              "path": "src/a.rs",
+              "line": 4,
+              "rule": "conflict-marker"
+            },
+            {
+              "path": "src/a.rs",
+              "line": 6,
+              "rule": "conflict-marker"
+            }
+          ],
+          "refused": "conflict-marker",
+          "surfaces": []
+        }
+      ]
+    }
+  },
+  "maintainer-junk": {
+    "sustainable-maintainer": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case maintainer-junk",
+          "scope": "range",
+          "fallback": "",
+          "status": "refused",
+          "findings": 3,
+          "hits": [
+            {
+              "path": ".DS_Store",
+              "line": 0,
+              "rule": "os-junk"
+            },
+            {
+              "path": "notes.orig",
+              "line": 0,
+              "rule": "merge-artifact"
+            },
+            {
+              "path": "src/._sidecar",
+              "line": 0,
+              "rule": "os-junk"
+            }
+          ],
+          "refused": "os-junk",
+          "surfaces": []
+        }
+      ]
+    }
+  },
+  "maintainer-binary": {
+    "sustainable-maintainer": {
+      "ok": true,
+      "summaries": [
+        {
+          "label": "case maintainer-binary",
+          "scope": "range",
+          "fallback": "",
+          "status": "clean",
+          "findings": 0,
+          "hits": [],
+          "refused": "",
+          "surfaces": []
+        }
+      ]
+    }
+  },
+  "maintainer-clean": {
+    "sustainable-maintainer": {
+      "ok": true,
+      "summaries": [
+        {
+          "label": "case maintainer-clean",
+          "scope": "range",
+          "fallback": "",
+          "status": "clean",
+          "findings": 0,
+          "hits": [],
+          "refused": "",
+          "surfaces": []
+        }
+      ]
+    }
+  },
+  "security-ci": {
+    "security-enhancer": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case security-ci",
+          "scope": "range",
+          "fallback": "",
+          "status": "regression",
+          "findings": 4,
+          "hits": [
+            {
+              "path": ".github/workflows/ci.yml",
+              "line": 3,
+              "rule": "ci/pull-request-target",
+              "remedy": "use `pull_request` unless the workflow needs the base repository's secrets"
+            },
+            {
+              "path": ".github/workflows/ci.yml",
+              "line": 4,
+              "rule": "ci/write-all-permissions",
+              "remedy": "grant the specific permissions the job needs"
+            },
+            {
+              "path": ".github/workflows/ci.yml",
+              "line": 8,
+              "rule": "ci/floating-action-ref",
+              "remedy": "pin the action to an immutable reference"
+            },
+            {
+              "path": ".github/workflows/ci.yml",
+              "line": 9,
+              "rule": "ci/remote-script-execution",
+              "remedy": "download, verify and run a pinned artifact instead of piping to a shell"
+            }
+          ],
+          "surfaces": [],
+          "refused": "static-security-regression"
+        }
+      ]
+    }
+  },
+  "security-dockerfile": {
+    "security-enhancer": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case security-dockerfile",
+          "scope": "range",
+          "fallback": "",
+          "status": "regression",
+          "findings": 5,
+          "hits": [
+            {
+              "path": "Dockerfile",
+              "line": 2,
+              "rule": "container/root-user",
+              "remedy": "run the image as a non-root user"
+            },
+            {
+              "path": "Dockerfile",
+              "line": 3,
+              "rule": "container/world-writable",
+              "remedy": "use the narrowest mode the step needs"
+            },
+            {
+              "path": "Dockerfile",
+              "line": 1,
+              "rule": "container/unpinned-base-image",
+              "remedy": "pin the base image by tag and digest"
+            },
+            {
+              "path": "Dockerfile",
+              "line": 4,
+              "rule": "container/secret-in-image",
+              "remedy": "pass secrets at run time, never as an image build argument"
+            },
+            {
+              "path": "Dockerfile",
+              "line": 7,
+              "rule": "container/unpinned-base-image",
+              "remedy": "pin the base image by tag and digest"
+            }
+          ],
+          "surfaces": [],
+          "refused": "static-security-regression"
+        }
+      ]
+    }
+  },
+  "security-removals": {
+    "security-enhancer": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case security-removals",
+          "scope": "range",
+          "fallback": "",
+          "status": "regression",
+          "findings": 2,
+          "hits": [
+            {
+              "path": ".github/CODEOWNERS",
+              "line": 1,
+              "rule": "hardening/codeowner-removed",
+              "remedy": "restore the owner or land the governance change on its own"
+            },
+            {
+              "path": ".gitignore",
+              "line": 1,
+              "rule": "hardening/ignore-rule-removed",
+              "remedy": "restore the ignore rule or untrack the file first"
+            }
+          ],
+          "surfaces": [],
+          "refused": "static-security-regression"
+        }
+      ]
+    }
+  },
+  "security-surfaces": {
+    "security-enhancer": {
+      "ok": true,
+      "summaries": [
+        {
+          "label": "case security-surfaces",
+          "scope": "range",
+          "fallback": "",
+          "status": "clean",
+          "findings": 0,
+          "hits": [],
+          "surfaces": [
+            {
+              "path": "build.rs",
+              "line": 1,
+              "rule": "surface/install-hook-added",
+              "remedy": "confirm this install hook is intended -- the semantic review will judge it"
+            },
+            {
+              "path": ".npmrc",
+              "line": 1,
+              "rule": "surface/install-hook-added",
+              "remedy": "confirm this install hook is intended -- the semantic review will judge it"
+            },
+            {
+              "path": "Cargo.toml",
+              "line": 2,
+              "rule": "surface/dependency-url-source",
+              "remedy": "confirm this dependency source is intended -- the semantic review will judge it"
+            },
+            {
+              "path": "go.mod",
+              "line": 2,
+              "rule": "surface/dependency-url-source",
+              "remedy": "confirm this dependency source is intended -- the semantic review will judge it"
+            },
+            {
+              "path": "package.json",
+              "line": 2,
+              "rule": "surface/dependency-url-source",
+              "remedy": "confirm this dependency source is intended -- the semantic review will judge it"
+            },
+            {
+              "path": "package.json",
+              "line": 3,
+              "rule": "surface/install-hook-added",
+              "remedy": "confirm this install hook is intended -- the semantic review will judge it"
+            },
+            {
+              "path": "requirements.txt",
+              "line": 1,
+              "rule": "surface/dependency-url-source",
+              "remedy": "confirm this dependency source is intended -- the semantic review will judge it"
+            },
+            {
+              "path": "src/config.rs",
+              "line": 1,
+              "rule": "surface/plaintext-endpoint",
+              "remedy": "confirm this plaintext endpoint is intended -- the semantic review will judge it"
+            },
+            {
+              "path": "src/config.rs",
+              "line": 3,
+              "rule": "surface/private-address",
+              "remedy": "confirm this address is intended to ship -- the semantic review will judge it"
+            },
+            {
+              "path": "src/config.rs",
+              "line": 4,
+              "rule": "surface/private-address",
+              "remedy": "confirm this address is intended to ship -- the semantic review will judge it"
+            }
+          ],
+          "refused": ""
+        }
+      ]
+    }
+  },
+  "security-lockfile": {
+    "security-enhancer": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case security-lockfile",
+          "scope": "range",
+          "fallback": "",
+          "status": "regression",
+          "findings": 1,
+          "hits": [
+            {
+              "path": "package.json",
+              "line": 1,
+              "rule": "dependency/lockfile-not-updated",
+              "remedy": "commit the lockfile with the manifest"
+            }
+          ],
+          "surfaces": [],
+          "refused": "static-security-regression"
+        }
+      ]
+    }
+  },
+  "security-cors": {
+    "security-enhancer": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case security-cors",
+          "scope": "range",
+          "fallback": "",
+          "status": "regression",
+          "findings": 1,
+          "hits": [
+            {
+              "path": "src/cors.rs",
+              "line": 2,
+              "rule": "runtime/cors-wildcard-credentials",
+              "remedy": "name the allowed origins when credentials are sent"
+            }
+          ],
+          "surfaces": [],
+          "refused": "static-security-regression"
+        }
+      ]
+    }
+  },
+  "security-runtime": {
+    "security-enhancer": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case security-runtime",
+          "scope": "range",
+          "fallback": "",
+          "status": "regression",
+          "findings": 2,
+          "hits": [
+            {
+              "path": "src/config.py",
+              "line": 1,
+              "rule": "runtime/tls-verification-disabled",
+              "remedy": "verify certificates in the shipped code path"
+            },
+            {
+              "path": "src/config.py",
+              "line": 2,
+              "rule": "runtime/debug-enabled",
+              "remedy": "ship with debug mode disabled"
+            }
+          ],
+          "surfaces": [],
+          "refused": "static-security-regression"
+        }
+      ]
+    }
+  },
+  "security-skipped-and-clean": {
+    "security-enhancer": {
+      "ok": true,
+      "summaries": [
+        {
+          "label": "case security-skipped-and-clean",
+          "scope": "range",
+          "fallback": "",
+          "status": "clean",
+          "findings": 0,
+          "hits": [],
+          "surfaces": [],
+          "refused": ""
+        }
+      ]
+    }
+  },
+  "security-credential-file": {
+    "security-enhancer": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case security-credential-file",
+          "scope": "range",
+          "fallback": "",
+          "status": "regression",
+          "findings": 1,
+          "hits": [
+            {
+              "path": "id_rsa",
+              "line": 1,
+              "rule": "hardening/credential-file-added",
+              "remedy": "keep credential files out of the repository"
+            }
+          ],
+          "surfaces": [],
+          "refused": "static-security-regression"
+        }
+      ]
+    }
+  },
+  "security-snapshot": {
+    "security-enhancer": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case security-snapshot",
+          "scope": "snapshot",
+          "fallback": "",
+          "status": "regression",
+          "findings": 1,
+          "hits": [
+            {
+              "path": "src/config.py",
+              "line": 1,
+              "rule": "runtime/tls-verification-disabled",
+              "remedy": "verify certificates in the shipped code path"
+            }
+          ],
+          "surfaces": [],
+          "refused": "static-security-regression"
+        }
+      ]
+    }
+  },
+  "maintainer-snapshot": {
+    "sustainable-maintainer": {
+      "ok": false,
+      "summaries": [
+        {
+          "label": "case maintainer-snapshot",
+          "scope": "snapshot",
+          "fallback": "",
+          "status": "refused",
+          "findings": 3,
+          "hits": [
+            {
+              "path": "junk.swp",
+              "line": 0,
+              "rule": "os-junk"
+            },
+            {
+              "path": "src/a.rs",
+              "line": 2,
+              "rule": "conflict-marker"
+            },
+            {
+              "path": "src/a.rs",
+              "line": 4,
+              "rule": "conflict-marker"
+            }
+          ],
+          "refused": "os-junk",
+          "surfaces": []
+        }
+      ]
+    }
+  }
+}

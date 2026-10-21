@@ -1,0 +1,14 @@
+{
+  "basic-markup": "Title\nFirst paragraph.",
+  "script-style": "before\nafter",
+  "nested-script": "shown",
+  "unclosed-script": "kept",
+  "entities": "a & b <c> A B &unknown;  x",
+  "comments": "text\nmore",
+  "whitespace-runs": "spaced   out \n lines",
+  "self-closing-script": "kept",
+  "stray-close": "text",
+  "quoted-attr": "link text",
+  "not-a-tag": "a\n<\nb and c\n<\n3 d",
+  "doctype": "content"
+}

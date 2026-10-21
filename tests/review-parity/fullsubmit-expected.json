@@ -1,0 +1,1462 @@
+{
+  "money-saver::valid-block": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "sql": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "storage": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "network": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "compute": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "cloudflare": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "vps": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 2,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "before_after": "x",
+          "remedy": "x",
+          "validation": "x",
+          "sources": [
+            "https://example.invalid/pricing"
+          ]
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\nthree\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "accepted": true,
+      "verdict": "block"
+    }
+  },
+  "money-saver::valid-pass": {
+    "report": {
+      "verdict": "pass",
+      "summary": "Reviewed.",
+      "coverage": {
+        "sql": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "storage": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "network": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "compute": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "cloudflare": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "vps": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "accepted": true,
+      "verdict": "pass"
+    }
+  },
+  "money-saver::charter-unread": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "sql": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "storage": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "network": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "compute": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "cloudflare": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "vps": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 1,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "before_after": "x",
+          "remedy": "x",
+          "validation": "x",
+          "sources": [
+            "https://example.invalid/pricing"
+          ]
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": false
+    },
+    "expected": {
+      "error": "Read original_request before deciding"
+    }
+  },
+  "money-saver::projects-missing": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "sql": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "storage": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "network": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "compute": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "cloudflare": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "vps": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 1,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "before_after": "x",
+          "remedy": "x",
+          "validation": "x",
+          "sources": [
+            "https://example.invalid/pricing"
+          ]
+        }
+      ],
+      "unknowns": []
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "error": "projects must contain these exact keys: app"
+    }
+  },
+  "money-saver::project-reviewed-unread": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "sql": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "storage": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "network": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "compute": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "cloudflare": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "vps": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 1,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "before_after": "x",
+          "remedy": "x",
+          "validation": "x",
+          "sources": [
+            "https://example.invalid/pricing"
+          ]
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [],
+      "original_read": true
+    },
+    "expected": {
+      "error": "Read the project's actual source before marking reviewed"
+    }
+  },
+  "money-saver::project-unknown-pass": {
+    "report": {
+      "verdict": "pass",
+      "summary": "Reviewed.",
+      "coverage": {
+        "sql": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "storage": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "network": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "compute": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "cloudflare": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "vps": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "unknown",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "error": "Unknown project coverage cannot pass"
+    }
+  },
+  "money-saver::finding-unlisted": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "sql": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "storage": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "network": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "compute": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "cloudflare": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "vps": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/ghost.rs",
+          "line": 1,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "before_after": "x",
+          "remedy": "x",
+          "validation": "x",
+          "sources": [
+            "https://example.invalid/pricing"
+          ]
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "error": "findings[0] must name one exact listed path and an existing positive integer line; use read to check its location"
+    }
+  },
+  "money-saver::finding-bad-line": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "sql": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "storage": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "network": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "compute": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "cloudflare": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "vps": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 99,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "before_after": "x",
+          "remedy": "x",
+          "validation": "x",
+          "sources": [
+            "https://example.invalid/pricing"
+          ]
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "error": "findings[0] must name one exact listed path and an existing positive integer line; use read to check its location"
+    }
+  },
+  "money-saver::finding-unread": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "sql": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "storage": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "network": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "compute": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "cloudflare": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "vps": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 1,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "before_after": "x",
+          "remedy": "x",
+          "validation": "x",
+          "sources": [
+            "https://example.invalid/pricing"
+          ]
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n",
+        "app/README.md": "# x\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/README.md"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "error": "findings[0] source context has not been read; read that exact file before submission"
+    }
+  },
+  "money-saver::finding-via-alias": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "sql": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "storage": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "network": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "compute": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "cloudflare": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "vps": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app-copy/src/main.rs",
+          "line": 3,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "before_after": "x",
+          "remedy": "x",
+          "validation": "x",
+          "sources": [
+            "https://example.invalid/pricing"
+          ]
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "app-copy": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\nthree\n"
+      },
+      "aliases": {
+        "app-copy/src/main.rs": "app/src/main.rs"
+      },
+      "projects": [
+        "app",
+        "app-copy"
+      ],
+      "reads": [
+        "app/src/main.rs",
+        "app-copy/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "accepted": true,
+      "verdict": "block"
+    }
+  },
+  "sustainable-maintainer::valid-block": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "structure": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "contracts": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "craft": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "duplication": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "tests": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "evolution": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 2,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "remedy": "x",
+          "validation": "x"
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\nthree\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "accepted": true,
+      "verdict": "block"
+    }
+  },
+  "sustainable-maintainer::valid-pass": {
+    "report": {
+      "verdict": "pass",
+      "summary": "Reviewed.",
+      "coverage": {
+        "structure": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "contracts": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "craft": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "duplication": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "tests": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "evolution": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "accepted": true,
+      "verdict": "pass"
+    }
+  },
+  "sustainable-maintainer::charter-unread": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "structure": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "contracts": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "craft": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "duplication": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "tests": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "evolution": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 1,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "remedy": "x",
+          "validation": "x"
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": false
+    },
+    "expected": {
+      "error": "Read original_request before deciding"
+    }
+  },
+  "sustainable-maintainer::projects-missing": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "structure": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "contracts": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "craft": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "duplication": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "tests": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "evolution": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 1,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "remedy": "x",
+          "validation": "x"
+        }
+      ],
+      "unknowns": []
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "error": "projects must contain these exact keys: app"
+    }
+  },
+  "sustainable-maintainer::project-reviewed-unread": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "structure": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "contracts": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "craft": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "duplication": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "tests": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "evolution": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 1,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "remedy": "x",
+          "validation": "x"
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [],
+      "original_read": true
+    },
+    "expected": {
+      "error": "Read the project's actual source before marking reviewed"
+    }
+  },
+  "sustainable-maintainer::project-unknown-pass": {
+    "report": {
+      "verdict": "pass",
+      "summary": "Reviewed.",
+      "coverage": {
+        "structure": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "contracts": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "craft": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "duplication": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "tests": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "evolution": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "unknown",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "error": "Unknown project coverage cannot pass"
+    }
+  },
+  "sustainable-maintainer::finding-unlisted": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "structure": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "contracts": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "craft": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "duplication": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "tests": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "evolution": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/ghost.rs",
+          "line": 1,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "remedy": "x",
+          "validation": "x"
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "error": "findings[0] must name one exact listed path and an existing positive integer line; use read to check its location"
+    }
+  },
+  "sustainable-maintainer::finding-bad-line": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "structure": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "contracts": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "craft": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "duplication": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "tests": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "evolution": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 99,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "remedy": "x",
+          "validation": "x"
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "error": "findings[0] must name one exact listed path and an existing positive integer line; use read to check its location"
+    }
+  },
+  "sustainable-maintainer::finding-unread": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "structure": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "contracts": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "craft": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "duplication": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "tests": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "evolution": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app/src/main.rs",
+          "line": 1,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "remedy": "x",
+          "validation": "x"
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\n",
+        "app/README.md": "# x\n"
+      },
+      "aliases": {},
+      "projects": [
+        "app"
+      ],
+      "reads": [
+        "app/README.md"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "error": "findings[0] source context has not been read; read that exact file before submission"
+    }
+  },
+  "sustainable-maintainer::finding-via-alias": {
+    "report": {
+      "verdict": "block",
+      "summary": "Reviewed.",
+      "coverage": {
+        "structure": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "contracts": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "craft": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "duplication": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "tests": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "evolution": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      },
+      "findings": [
+        {
+          "file": "app-copy/src/main.rs",
+          "line": 3,
+          "severity": "blocking",
+          "evidence": "x",
+          "impact": "x",
+          "remedy": "x",
+          "validation": "x"
+        }
+      ],
+      "unknowns": [],
+      "projects": {
+        "app": {
+          "status": "reviewed",
+          "reason": "looked"
+        },
+        "app-copy": {
+          "status": "reviewed",
+          "reason": "looked"
+        }
+      }
+    },
+    "gate": {
+      "changed": [],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ]
+    },
+    "full": {
+      "files": {
+        "app/src/main.rs": "one\ntwo\nthree\n"
+      },
+      "aliases": {
+        "app-copy/src/main.rs": "app/src/main.rs"
+      },
+      "projects": [
+        "app",
+        "app-copy"
+      ],
+      "reads": [
+        "app/src/main.rs",
+        "app-copy/src/main.rs"
+      ],
+      "original_read": true
+    },
+    "expected": {
+      "accepted": true,
+      "verdict": "block"
+    }
+  }
+}

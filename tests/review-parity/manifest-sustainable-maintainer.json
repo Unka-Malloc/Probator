@@ -1,0 +1,263 @@
+[
+  {
+    "name": "maintainer_context",
+    "description": "Inspect the immutable outgoing range. Start with inventory, then diff every changed file to its end; read is 400 lines with start and revision; list globs the snapshot; find is a literal search over the range — use it to locate the original a change duplicates, the callers a contract serves, or the documentation a decision should update. Credential containers are unavailable by design.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "enum": [
+            "inventory",
+            "list",
+            "diff",
+            "read",
+            "find"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "start": {
+          "type": "integer"
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "revision": {
+          "type": "string",
+          "enum": [
+            "outgoing",
+            "base"
+          ]
+        }
+      },
+      "required": [
+        "operation"
+      ]
+    }
+  },
+  {
+    "name": "maintainer_submit_review",
+    "description": "Submit the final maintainability verdict once, with every domain accounted for.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "block",
+            "incomplete"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "coverage": {
+          "type": "object",
+          "properties": {
+            "structure": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "contracts": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "craft": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "duplication": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "tests": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "evolution": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "structure",
+            "contracts",
+            "craft",
+            "duplication",
+            "tests",
+            "evolution"
+          ],
+          "additionalProperties": false
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "blocking",
+                  "advisory"
+                ]
+              },
+              "evidence": {
+                "type": "string"
+              },
+              "impact": {
+                "type": "string"
+              },
+              "remedy": {
+                "type": "string"
+              },
+              "validation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "file",
+              "line",
+              "severity",
+              "evidence",
+              "impact",
+              "remedy",
+              "validation"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "unknowns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "verdict",
+        "summary",
+        "coverage",
+        "findings",
+        "unknowns"
+      ]
+    }
+  }
+]

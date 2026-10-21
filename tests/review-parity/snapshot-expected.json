@@ -1,0 +1,41 @@
+{
+  "money-basic": {
+    "files": {
+      "app/README.md": "# app\n",
+      "app/src/main.py": "import os\nprint(os.environ.get('HOME'))\n",
+      "app/src/secrets.py": "API_TOKEN = [REDACTED]\n",
+      "app/wrangler.toml": "name = \"app\"\n"
+    },
+    "projects": {
+      "app": {
+        "source_files": 4,
+        "scope": "Current first-party source, manifests and root product/readme documents; includes unstaged and untracked nonignored code. Excludes generated/build/vendor/runtime data, private containers, fixtures and reports."
+      }
+    },
+    "aliases": {}
+  },
+  "maintainer-reuse": {
+    "files": {
+      "app/docs/guide.md": "# guide\n",
+      "app/src/main.rs": "fn main() {}\n",
+      "app-copy/src/extra.rs": "fn extra() {}\n"
+    },
+    "projects": {
+      "app": {
+        "source_files": 2,
+        "scope": "Current first-party source, manifests and root product/readme documents; includes unstaged and untracked nonignored code. Excludes generated/build/vendor/runtime data, private containers, fixtures and reports."
+      },
+      "app-copy": {
+        "source_files": 3,
+        "scope": "Current first-party source, manifests and root product/readme documents; includes unstaged and untracked nonignored code. Excludes generated/build/vendor/runtime data, private containers, fixtures and reports.",
+        "identical_source_reused_from": "app",
+        "identical_files": 2,
+        "distinct_files": 1
+      }
+    },
+    "aliases": {
+      "app-copy/docs/guide.md": "app/docs/guide.md",
+      "app-copy/src/main.rs": "app/src/main.rs"
+    }
+  }
+}

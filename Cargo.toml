@@ -1,0 +1,40 @@
+[package]
+name = "probator"
+version = "0.1.0"
+edition = "2024"
+description = "Checklist-contract audit engine: run an agent against a declared domain list, enforce per-item coverage mechanically, seal the verdict"
+license = "Apache-2.0"
+publish = false
+default-run = "probator"
+repository = "https://github.com/Unka-Malloc/Probator"
+
+[[bin]]
+name = "probator"
+path = "src/bin/probator.rs"
+
+[[bin]]
+name = "probator-agent"
+path = "src/bin/probator-agent.rs"
+
+[dependencies]
+a4aa = "0.2.0"
+agents-with-profiles = { version = "0.1.0", default-features = false }
+async-trait = "0.1"
+anyhow = "1.0.104"
+base64 = "0.23.1"
+chacha20poly1305 = "0.11.0"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+hmac = "0.13.0"
+jiff = "0.2"
+rand = "0.10.3"
+regex = "1"
+serde = { version = "1.0.229", features = ["derive"] }
+# preserve_order: the Python engine's dictionaries keep file order, and the
+# manifest's catalog enums are order-sensitive data. IndexMap-backed maps keep
+# the runtime byte-faithful to it.
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
+sha2 = "0.11.1"
+toml = "1.1.6"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+wait-timeout = "0.2.1"
+tokio = { version = "1", features = ["macros", "rt", "sync", "signal"] }

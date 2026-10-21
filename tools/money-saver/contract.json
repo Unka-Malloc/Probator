@@ -1,0 +1,32 @@
+{
+  "name": "money-saver",
+  "title": "Money Saver",
+  "summary": "Operational cost and continuity gate: no change may silently grow cloud, storage, traffic or compute spend, or sacrifice paid work to arbitrary cutoffs.",
+  "domains": ["sql", "storage", "network", "compute", "cloudflare", "vps"],
+  "finding_keys": ["file", "line", "severity", "evidence", "impact", "before_after", "remedy", "validation", "sources"],
+  "finding_optional_keys": ["title"],
+  "on": ["pre-push", "pr"],
+  "severity": "blocking",
+  "tools": {
+    "name_prefix": "money",
+    "context": ["inventory", "original_request", "list", "diff", "read", "find"],
+    "submit": true,
+    "official_documents": true,
+    "full_service": true,
+    "projects_coverage": "always",
+    "domain_key": "cost_domains",
+    "revision_label": "staged",
+    "descriptions": {
+      "context": "Inspect immutable source. Start with inventory for review mode and scope. Commit mode requires every changed diff; full mode requires original_request and per-project coverage. read is {read_page_lines} lines with start; find/list use pattern glob and offset pagination. Full-mode find supports literal alternatives separated by |.",
+      "submit": "Submit the final cost decision once. Follow the Money Saver policy's evidence and coverage contract.",
+      "official_doc": "Fetch an official reference by exact catalog key or listed URL. Cached once per review; offset pages through the same response.",
+      "inventory_full_service": "Read original_request, then inspect every project. list/find accept glob pattern and offset; read returns numbered source. Submit project coverage including exact inspected entry points, data paths, clients and cancellation/retry paths. No source execution or production access."
+    }
+  },
+  "snapshot": {
+    "suffixes": [".rs", ".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".dart", ".py", ".php", ".sql", ".sh", ".swift", ".kt", ".c", ".h", ".cpp", ".vue", ".svelte", ".html", ".css", ".astro"],
+    "manifests": ["package.json", "Cargo.toml", "go.mod", "pubspec.yaml", "pyproject.toml", "requirements.txt", "Dockerfile", "Caddyfile", "nginx.conf", "README.md", "PRODUCT.md", "CONTEXT.md"]
+  },
+  "task": "Review the outgoing changes using the Money Saver tools, then submit one final verdict.",
+  "task_full_service": "Perform the assigned full-service audit. Start with inventory and original_request, inspect every selected project including clients and all cancellation/retry paths, fetch applicable official documents and submit a complete report with per-project coverage. No arbitrary turn or time limit applies."
+}

@@ -1,0 +1,157 @@
+{
+  "agents": {
+    "opencode": {
+      "id": "opencode",
+      "lane": "serve",
+      "command": {
+        "program": {"resolve": ["opencode", "{home}/.opencode/bin/opencode"]},
+        "args": ["serve", "--port", "0"],
+        "env": {
+          "inheritAll": {
+            "set": {
+              "OPENCODE_CONFIG_CONTENT": {"$json": {
+                "share": "disabled",
+                "autoupdate": false,
+                "snapshot": false,
+                "formatter": false,
+                "lsp": false,
+                "plugin": [],
+                "enabled_providers": ["opencode"],
+                "permission": {
+                  "edit": "deny",
+                  "bash": "deny",
+                  "webfetch": "deny",
+                  "doom_loop": "deny",
+                  "external_directory": "deny"
+                },
+                "tools": {
+                  "write": false,
+                  "edit": false,
+                  "patch": false,
+                  "bash": false,
+                  "webfetch": false,
+                  "websearch": false,
+                  "task": false,
+                  "skill": false,
+                  "question": false,
+                  "todowrite": false,
+                  "todoread": false,
+                  "codesearch": false
+                }
+              }}
+            }
+          }
+        }
+      },
+      "alternates": [
+        {
+          "id": "opencode",
+          "lane": "acp",
+          "prefer_load": true,
+          "command": {
+            "program": {"resolve": ["opencode", "{home}/.opencode/bin/opencode"]},
+            "args": ["acp"],
+            "env": {
+              "inheritAll": {
+                "set": {
+                  "OPENCODE_CONFIG_CONTENT": {"$json": {
+                    "share": "disabled",
+                    "autoupdate": false,
+                    "snapshot": false,
+                    "formatter": false,
+                    "lsp": false,
+                    "plugin": [],
+                    "enabled_providers": ["opencode"],
+                    "permission": {
+                      "edit": "deny",
+                      "bash": "deny",
+                      "webfetch": "deny",
+                      "doom_loop": "deny",
+                      "external_directory": "deny"
+                    },
+                    "tools": {
+                      "write": false,
+                      "edit": false,
+                      "patch": false,
+                      "bash": false,
+                      "webfetch": false,
+                      "websearch": false,
+                      "task": false,
+                      "skill": false,
+                      "question": false,
+                      "todowrite": false,
+                      "todoread": false,
+                      "codesearch": false
+                    }
+                  }}
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "devin": {
+      "id": "devin",
+      "lane": "acp",
+      "prefer_load": true,
+      "auth_key": {"secret": {"secret": "devin-api-key"}},
+      "command": {
+        "program": {"resolve": ["devin", "/Applications/Devin.app/Contents/Resources/app/extensions/windsurf/devin/bin/devin"]},
+        "args": ["acp"],
+        "env": {
+          "inheritAll": {
+            "set": {
+              "DEVIN_MODEL": "swe-2-max"
+            }
+          }
+        }
+      }
+    },
+    "pi": {
+      "id": "pi",
+      "lane": "rpc",
+      "command": {
+        "program": {"resolve": ["pi", "{home}/.local/bin/pi", "{home}/.pi/agent/bin/pi"]},
+        "args": ["--mode", "rpc", "--approve"]
+      },
+      "sessionOpen": {"method": "get_state", "params": {}},
+      "sessionResume": {"method": "switch_session", "params": {"sessionPath": "{sessionId}"}},
+      "prompt": {"method": "prompt", "params": {"message": "{prompt}"}},
+      "completion": {"method": "agent_settled"},
+      "cancel": {"method": "abort", "params": {}},
+      "textEventMethod": "message_update",
+      "textPath": "assistantMessageEvent.delta",
+      "preTurn": [
+        {"method": "set_model", "params": {"provider": "{modelProvider}", "modelId": "{modelId}"}},
+        {"method": "set_thinking_level", "params": {"level": "{effort}"}}
+      ],
+      "envelope": {
+        "methodField": "type",
+        "stringIds": true,
+        "paramsInline": true,
+        "responseMethod": "response",
+        "dataField": "data",
+        "resultField": "data",
+        "errorField": "error",
+        "successField": "success",
+        "commandField": "command"
+      },
+      "passthrough": ["get_state", "get_available_models", "steer", "get_last_assistant_text", "switch_session"]
+    }
+  },
+  "profiles": {
+    "{checker}": {"agent": "pi"},
+    "{checker}-devin": {"agent": "devin", "model": "swe-2-max"},
+    "{checker}-pi": {"agent": "pi"}
+  },
+  "bindings": {
+    "audit": {"profile": "{checker}", "fallbacks": ["{checker}-devin", "{checker}-pi"]}
+  },
+  "secrets": {
+    "devin-api-key": [
+      {"env": "DEVIN_API_KEY"},
+      {"toml": {"path": "{home}/.local/share/devin/credentials.toml", "key": "windsurf_api_key"}}
+    ]
+  }
+}

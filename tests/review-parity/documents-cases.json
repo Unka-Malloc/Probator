@@ -1,0 +1,14 @@
+[
+  {"name": "basic-markup", "html": "<html><body><h1>Title</h1><p>First paragraph.</p></body></html>"},
+  {"name": "script-style", "html": "<p>before</p><script>var x = 'not text';</script><style>.a { color: red; }</style><p>after</p>"},
+  {"name": "nested-script", "html": "<script><script>x</script></script><p>shown</p>"},
+  {"name": "unclosed-script", "html": "<p>kept</p><script>var x = 1; <p>gone</p>"},
+  {"name": "entities", "html": "<p>a &amp; b &lt;c&gt; &#65; &#x42; &unknown; &nbsp;x</p>"},
+  {"name": "comments", "html": "<!-- comment --><p>text</p><!-- multi\nline --><p>more</p>"},
+  {"name": "whitespace-runs", "html": "<p>  spaced   out \n lines  </p>"},
+  {"name": "self-closing-script", "html": "<script src=\"x.js\" /><p>kept</p>"},
+  {"name": "stray-close", "html": "</script><p>text</p>"},
+  {"name": "quoted-attr", "html": "<a href=\"x>y\">link text</a>"},
+  {"name": "not-a-tag", "html": "a < b and c <3 d"},
+  {"name": "doctype", "html": "<!DOCTYPE html><p>content</p>"}
+]

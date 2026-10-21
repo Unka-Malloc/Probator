@@ -1,0 +1,574 @@
+{
+  "full-maintainer": [
+    {
+      "reply": {
+        "mode": "full-service",
+        "projects": {
+          "app": {
+            "source_files": 3,
+            "scope": "synthetic"
+          },
+          "app-copy": {
+            "source_files": 1,
+            "scope": "synthetic",
+            "identical_source_reused_from": "app",
+            "identical_files": 1,
+            "distinct_files": 0
+          }
+        },
+        "domains": [
+          "structure",
+          "contracts",
+          "craft",
+          "duplication",
+          "tests",
+          "evolution"
+        ],
+        "instructions": "Read original_request (the review charter), then inspect every project. list/find accept glob pattern and offset; read returns numbered source. Submit per-project coverage naming what was inspected, and per-domain coverage. No source execution or production access."
+      }
+    },
+    {
+      "reply": {
+        "paths": [
+          "app/src/main.rs",
+          "app/src/big.rs",
+          "app/docs/guide.md",
+          "app-copy/src/main.rs",
+          "app-copy/src/main.rs"
+        ],
+        "total": 5,
+        "next_offset": null
+      }
+    },
+    {
+      "reply": {
+        "paths": [
+          "app/src/main.rs",
+          "app/src/big.rs"
+        ],
+        "total": 2,
+        "next_offset": null
+      }
+    },
+    {
+      "reply": {
+        "paths": [
+          "app/docs/guide.md",
+          "app-copy/src/main.rs",
+          "app-copy/src/main.rs"
+        ],
+        "total": 5,
+        "next_offset": null
+      }
+    },
+    {
+      "reply": {
+        "source_reused_from": null,
+        "total_lines": 3,
+        "content": "1: fn main() {\n2:     let needle = 1;\n3: }",
+        "next_line": null
+      }
+    },
+    {
+      "reply": {
+        "source_reused_from": null,
+        "total_lines": 450,
+        "content": "380: line 380\n381: line 381\n382: line 382\n383: line 383\n384: line 384\n385: line 385\n386: line 386\n387: line 387\n388: line 388\n389: line 389\n390: line 390\n391: line 391\n392: line 392\n393: line 393\n394: line 394\n395: line 395\n396: line 396\n397: line 397\n398: line 398\n399: line 399\n400: line 400\n401: line 401\n402: line 402\n403: line 403\n404: line 404\n405: line 405\n406: line 406\n407: line 407\n408: line 408\n409: line 409\n410: line 410\n411: line 411\n412: line 412\n413: line 413\n414: line 414\n415: line 415\n416: line 416\n417: line 417\n418: line 418\n419: line 419\n420: line 420\n421: line 421\n422: line 422\n423: line 423\n424: line 424\n425: line 425\n426: line 426\n427: line 427\n428: line 428\n429: line 429\n430: line 430\n431: line 431\n432: line 432\n433: line 433\n434: line 434\n435: line 435\n436: line 436\n437: line 437\n438: line 438\n439: line 439\n440: line 440\n441: line 441\n442: line 442\n443: line 443\n444: line 444\n445: line 445\n446: line 446\n447: line 447\n448: line 448\n449: line 449\n450: line 450",
+        "next_line": null
+      }
+    },
+    {
+      "reply": {
+        "source_reused_from": "app/src/main.rs",
+        "total_lines": 3,
+        "content": "1: fn main() {\n2:     let needle = 1;\n3: }",
+        "next_line": null
+      }
+    },
+    {
+      "error": "Path is outside the selected source snapshot"
+    },
+    {
+      "reply": {
+        "matches": [
+          "app/src/main.rs:2:     let needle = 1;",
+          "app-copy/src/main.rs:2:     let needle = 1;"
+        ],
+        "total": 2,
+        "next_offset": null
+      }
+    },
+    {
+      "reply": {
+        "matches": [
+          "app/src/main.rs:1: fn main() {",
+          "app/docs/guide.md:2: beta here",
+          "app-copy/src/main.rs:1: fn main() {"
+        ],
+        "total": 3,
+        "next_offset": null
+      }
+    },
+    {
+      "reply": {
+        "matches": [
+          "app/src/big.rs:1: line 1",
+          "app/src/big.rs:2: line 2",
+          "app/src/big.rs:3: line 3",
+          "app/src/big.rs:4: line 4",
+          "app/src/big.rs:5: line 5",
+          "app/src/big.rs:6: line 6",
+          "app/src/big.rs:7: line 7",
+          "app/src/big.rs:8: line 8",
+          "app/src/big.rs:9: line 9",
+          "app/src/big.rs:10: line 10",
+          "app/src/big.rs:11: line 11",
+          "app/src/big.rs:12: line 12",
+          "app/src/big.rs:13: line 13",
+          "app/src/big.rs:14: line 14",
+          "app/src/big.rs:15: line 15",
+          "app/src/big.rs:16: line 16",
+          "app/src/big.rs:17: line 17",
+          "app/src/big.rs:18: line 18",
+          "app/src/big.rs:19: line 19",
+          "app/src/big.rs:20: line 20",
+          "app/src/big.rs:21: line 21",
+          "app/src/big.rs:22: line 22",
+          "app/src/big.rs:23: line 23",
+          "app/src/big.rs:24: line 24",
+          "app/src/big.rs:25: line 25",
+          "app/src/big.rs:26: line 26",
+          "app/src/big.rs:27: line 27",
+          "app/src/big.rs:28: line 28",
+          "app/src/big.rs:29: line 29",
+          "app/src/big.rs:30: line 30",
+          "app/src/big.rs:31: line 31",
+          "app/src/big.rs:32: line 32",
+          "app/src/big.rs:33: line 33",
+          "app/src/big.rs:34: line 34",
+          "app/src/big.rs:35: line 35",
+          "app/src/big.rs:36: line 36",
+          "app/src/big.rs:37: line 37",
+          "app/src/big.rs:38: line 38",
+          "app/src/big.rs:39: line 39",
+          "app/src/big.rs:40: line 40",
+          "app/src/big.rs:41: line 41",
+          "app/src/big.rs:42: line 42",
+          "app/src/big.rs:43: line 43",
+          "app/src/big.rs:44: line 44",
+          "app/src/big.rs:45: line 45",
+          "app/src/big.rs:46: line 46",
+          "app/src/big.rs:47: line 47",
+          "app/src/big.rs:48: line 48",
+          "app/src/big.rs:49: line 49",
+          "app/src/big.rs:50: line 50",
+          "app/src/big.rs:51: line 51",
+          "app/src/big.rs:52: line 52",
+          "app/src/big.rs:53: line 53",
+          "app/src/big.rs:54: line 54",
+          "app/src/big.rs:55: line 55",
+          "app/src/big.rs:56: line 56",
+          "app/src/big.rs:57: line 57",
+          "app/src/big.rs:58: line 58",
+          "app/src/big.rs:59: line 59",
+          "app/src/big.rs:60: line 60",
+          "app/src/big.rs:61: line 61",
+          "app/src/big.rs:62: line 62",
+          "app/src/big.rs:63: line 63",
+          "app/src/big.rs:64: line 64",
+          "app/src/big.rs:65: line 65",
+          "app/src/big.rs:66: line 66",
+          "app/src/big.rs:67: line 67",
+          "app/src/big.rs:68: line 68",
+          "app/src/big.rs:69: line 69",
+          "app/src/big.rs:70: line 70",
+          "app/src/big.rs:71: line 71",
+          "app/src/big.rs:72: line 72",
+          "app/src/big.rs:73: line 73",
+          "app/src/big.rs:74: line 74",
+          "app/src/big.rs:75: line 75",
+          "app/src/big.rs:76: line 76",
+          "app/src/big.rs:77: line 77",
+          "app/src/big.rs:78: line 78",
+          "app/src/big.rs:79: line 79",
+          "app/src/big.rs:80: line 80",
+          "app/src/big.rs:81: line 81",
+          "app/src/big.rs:82: line 82",
+          "app/src/big.rs:83: line 83",
+          "app/src/big.rs:84: line 84",
+          "app/src/big.rs:85: line 85",
+          "app/src/big.rs:86: line 86",
+          "app/src/big.rs:87: line 87",
+          "app/src/big.rs:88: line 88",
+          "app/src/big.rs:89: line 89",
+          "app/src/big.rs:90: line 90",
+          "app/src/big.rs:91: line 91",
+          "app/src/big.rs:92: line 92",
+          "app/src/big.rs:93: line 93",
+          "app/src/big.rs:94: line 94",
+          "app/src/big.rs:95: line 95",
+          "app/src/big.rs:96: line 96",
+          "app/src/big.rs:97: line 97",
+          "app/src/big.rs:98: line 98",
+          "app/src/big.rs:99: line 99",
+          "app/src/big.rs:100: line 100"
+        ],
+        "total": 450,
+        "next_offset": 100
+      }
+    },
+    {
+      "reply": {
+        "matches": [
+          "app/src/big.rs:1: line 1",
+          "app/src/big.rs:2: line 2",
+          "app/src/big.rs:3: line 3",
+          "app/src/big.rs:4: line 4",
+          "app/src/big.rs:5: line 5",
+          "app/src/big.rs:6: line 6",
+          "app/src/big.rs:7: line 7",
+          "app/src/big.rs:8: line 8",
+          "app/src/big.rs:9: line 9",
+          "app/src/big.rs:10: line 10",
+          "app/src/big.rs:11: line 11",
+          "app/src/big.rs:12: line 12",
+          "app/src/big.rs:13: line 13",
+          "app/src/big.rs:14: line 14",
+          "app/src/big.rs:15: line 15",
+          "app/src/big.rs:16: line 16",
+          "app/src/big.rs:17: line 17",
+          "app/src/big.rs:18: line 18",
+          "app/src/big.rs:19: line 19",
+          "app/src/big.rs:20: line 20",
+          "app/src/big.rs:21: line 21",
+          "app/src/big.rs:22: line 22",
+          "app/src/big.rs:23: line 23",
+          "app/src/big.rs:24: line 24",
+          "app/src/big.rs:25: line 25",
+          "app/src/big.rs:26: line 26",
+          "app/src/big.rs:27: line 27",
+          "app/src/big.rs:28: line 28",
+          "app/src/big.rs:29: line 29",
+          "app/src/big.rs:30: line 30",
+          "app/src/big.rs:31: line 31",
+          "app/src/big.rs:32: line 32",
+          "app/src/big.rs:33: line 33",
+          "app/src/big.rs:34: line 34",
+          "app/src/big.rs:35: line 35",
+          "app/src/big.rs:36: line 36",
+          "app/src/big.rs:37: line 37",
+          "app/src/big.rs:38: line 38",
+          "app/src/big.rs:39: line 39",
+          "app/src/big.rs:40: line 40",
+          "app/src/big.rs:41: line 41",
+          "app/src/big.rs:42: line 42",
+          "app/src/big.rs:43: line 43",
+          "app/src/big.rs:44: line 44",
+          "app/src/big.rs:45: line 45",
+          "app/src/big.rs:46: line 46",
+          "app/src/big.rs:47: line 47",
+          "app/src/big.rs:48: line 48",
+          "app/src/big.rs:49: line 49",
+          "app/src/big.rs:50: line 50",
+          "app/src/big.rs:51: line 51",
+          "app/src/big.rs:52: line 52",
+          "app/src/big.rs:53: line 53",
+          "app/src/big.rs:54: line 54",
+          "app/src/big.rs:55: line 55",
+          "app/src/big.rs:56: line 56",
+          "app/src/big.rs:57: line 57",
+          "app/src/big.rs:58: line 58",
+          "app/src/big.rs:59: line 59",
+          "app/src/big.rs:60: line 60",
+          "app/src/big.rs:61: line 61",
+          "app/src/big.rs:62: line 62",
+          "app/src/big.rs:63: line 63",
+          "app/src/big.rs:64: line 64",
+          "app/src/big.rs:65: line 65",
+          "app/src/big.rs:66: line 66",
+          "app/src/big.rs:67: line 67",
+          "app/src/big.rs:68: line 68",
+          "app/src/big.rs:69: line 69",
+          "app/src/big.rs:70: line 70",
+          "app/src/big.rs:71: line 71",
+          "app/src/big.rs:72: line 72",
+          "app/src/big.rs:73: line 73",
+          "app/src/big.rs:74: line 74",
+          "app/src/big.rs:75: line 75",
+          "app/src/big.rs:76: line 76",
+          "app/src/big.rs:77: line 77",
+          "app/src/big.rs:78: line 78",
+          "app/src/big.rs:79: line 79",
+          "app/src/big.rs:80: line 80",
+          "app/src/big.rs:81: line 81",
+          "app/src/big.rs:82: line 82",
+          "app/src/big.rs:83: line 83",
+          "app/src/big.rs:84: line 84",
+          "app/src/big.rs:85: line 85",
+          "app/src/big.rs:86: line 86",
+          "app/src/big.rs:87: line 87",
+          "app/src/big.rs:88: line 88",
+          "app/src/big.rs:89: line 89",
+          "app/src/big.rs:90: line 90",
+          "app/src/big.rs:91: line 91",
+          "app/src/big.rs:92: line 92",
+          "app/src/big.rs:93: line 93",
+          "app/src/big.rs:94: line 94",
+          "app/src/big.rs:95: line 95",
+          "app/src/big.rs:96: line 96",
+          "app/src/big.rs:97: line 97",
+          "app/src/big.rs:98: line 98",
+          "app/src/big.rs:99: line 99",
+          "app/src/big.rs:100: line 100"
+        ],
+        "total": 450,
+        "next_offset": 100
+      }
+    },
+    {
+      "reply": {
+        "matches": [
+          "app/src/big.rs:101: line 101",
+          "app/src/big.rs:102: line 102",
+          "app/src/big.rs:103: line 103",
+          "app/src/big.rs:104: line 104",
+          "app/src/big.rs:105: line 105",
+          "app/src/big.rs:106: line 106",
+          "app/src/big.rs:107: line 107",
+          "app/src/big.rs:108: line 108",
+          "app/src/big.rs:109: line 109",
+          "app/src/big.rs:110: line 110",
+          "app/src/big.rs:111: line 111",
+          "app/src/big.rs:112: line 112",
+          "app/src/big.rs:113: line 113",
+          "app/src/big.rs:114: line 114",
+          "app/src/big.rs:115: line 115",
+          "app/src/big.rs:116: line 116",
+          "app/src/big.rs:117: line 117",
+          "app/src/big.rs:118: line 118",
+          "app/src/big.rs:119: line 119",
+          "app/src/big.rs:120: line 120",
+          "app/src/big.rs:121: line 121",
+          "app/src/big.rs:122: line 122",
+          "app/src/big.rs:123: line 123",
+          "app/src/big.rs:124: line 124",
+          "app/src/big.rs:125: line 125",
+          "app/src/big.rs:126: line 126",
+          "app/src/big.rs:127: line 127",
+          "app/src/big.rs:128: line 128",
+          "app/src/big.rs:129: line 129",
+          "app/src/big.rs:130: line 130",
+          "app/src/big.rs:131: line 131",
+          "app/src/big.rs:132: line 132",
+          "app/src/big.rs:133: line 133",
+          "app/src/big.rs:134: line 134",
+          "app/src/big.rs:135: line 135",
+          "app/src/big.rs:136: line 136",
+          "app/src/big.rs:137: line 137",
+          "app/src/big.rs:138: line 138",
+          "app/src/big.rs:139: line 139",
+          "app/src/big.rs:140: line 140",
+          "app/src/big.rs:141: line 141",
+          "app/src/big.rs:142: line 142",
+          "app/src/big.rs:143: line 143",
+          "app/src/big.rs:144: line 144",
+          "app/src/big.rs:145: line 145",
+          "app/src/big.rs:146: line 146",
+          "app/src/big.rs:147: line 147",
+          "app/src/big.rs:148: line 148",
+          "app/src/big.rs:149: line 149",
+          "app/src/big.rs:150: line 150",
+          "app/src/big.rs:151: line 151",
+          "app/src/big.rs:152: line 152",
+          "app/src/big.rs:153: line 153",
+          "app/src/big.rs:154: line 154",
+          "app/src/big.rs:155: line 155",
+          "app/src/big.rs:156: line 156",
+          "app/src/big.rs:157: line 157",
+          "app/src/big.rs:158: line 158",
+          "app/src/big.rs:159: line 159",
+          "app/src/big.rs:160: line 160",
+          "app/src/big.rs:161: line 161",
+          "app/src/big.rs:162: line 162",
+          "app/src/big.rs:163: line 163",
+          "app/src/big.rs:164: line 164",
+          "app/src/big.rs:165: line 165",
+          "app/src/big.rs:166: line 166",
+          "app/src/big.rs:167: line 167",
+          "app/src/big.rs:168: line 168",
+          "app/src/big.rs:169: line 169",
+          "app/src/big.rs:170: line 170",
+          "app/src/big.rs:171: line 171",
+          "app/src/big.rs:172: line 172",
+          "app/src/big.rs:173: line 173",
+          "app/src/big.rs:174: line 174",
+          "app/src/big.rs:175: line 175",
+          "app/src/big.rs:176: line 176",
+          "app/src/big.rs:177: line 177",
+          "app/src/big.rs:178: line 178",
+          "app/src/big.rs:179: line 179",
+          "app/src/big.rs:180: line 180",
+          "app/src/big.rs:181: line 181",
+          "app/src/big.rs:182: line 182",
+          "app/src/big.rs:183: line 183",
+          "app/src/big.rs:184: line 184",
+          "app/src/big.rs:185: line 185",
+          "app/src/big.rs:186: line 186",
+          "app/src/big.rs:187: line 187",
+          "app/src/big.rs:188: line 188",
+          "app/src/big.rs:189: line 189",
+          "app/src/big.rs:190: line 190",
+          "app/src/big.rs:191: line 191",
+          "app/src/big.rs:192: line 192",
+          "app/src/big.rs:193: line 193",
+          "app/src/big.rs:194: line 194",
+          "app/src/big.rs:195: line 195",
+          "app/src/big.rs:196: line 196",
+          "app/src/big.rs:197: line 197",
+          "app/src/big.rs:198: line 198",
+          "app/src/big.rs:199: line 199",
+          "app/src/big.rs:200: line 200"
+        ],
+        "total": 450,
+        "next_offset": 200
+      }
+    },
+    {
+      "error": "Search text is required"
+    },
+    {
+      "error": "Full reviews use inventory/original_request/list/read/find"
+    },
+    {
+      "reply": {
+        "conversation_url": "https://example.invalid/thread/1",
+        "messages": []
+      }
+    },
+    {
+      "error": "Full reviews use inventory/original_request/list/read/find"
+    }
+  ],
+  "full-money": [
+    {
+      "reply": {
+        "mode": "full-service",
+        "projects": {
+          "app": {
+            "source_files": 2,
+            "scope": "synthetic"
+          }
+        },
+        "documents": {
+          "workers-pricing": "https://developers.cloudflare.com/workers/platform/pricing/index.md",
+          "workers-streams": "https://developers.cloudflare.com/workers/runtime-apis/streams/index.md",
+          "workers-cache": "https://developers.cloudflare.com/workers/runtime-apis/cache/index.md",
+          "d1-pricing": "https://developers.cloudflare.com/d1/platform/pricing/index.md",
+          "d1-indexes": "https://developers.cloudflare.com/d1/best-practices/use-indexes/index.md",
+          "d1-batch": "https://developers.cloudflare.com/d1/worker-api/d1-database/index.md",
+          "durable-objects-pricing": "https://developers.cloudflare.com/durable-objects/platform/pricing/index.md",
+          "durable-objects-hibernation": "https://developers.cloudflare.com/durable-objects/best-practices/websockets/index.md",
+          "kv-pricing": "https://developers.cloudflare.com/kv/platform/pricing/index.md",
+          "r2-pricing": "https://developers.cloudflare.com/r2/pricing/index.md",
+          "queues-pricing": "https://developers.cloudflare.com/queues/platform/pricing/index.md",
+          "sqlite-query-planner": "https://www.sqlite.org/queryplanner.html",
+          "sqlite-wal": "https://www.sqlite.org/wal.html",
+          "postgres-explain": "https://www.postgresql.org/docs/current/using-explain.html",
+          "postgres-indexes": "https://www.postgresql.org/docs/current/indexes.html",
+          "mysql-optimization": "https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/optimization-indexes.html",
+          "nginx-proxy": "https://nginx.org/en/docs/http/ngx_http_proxy_module.html",
+          "hetzner-traffic": "https://docs.hetzner.com/cloud/billing/faq/",
+          "digitalocean-bandwidth": "https://docs.digitalocean.com/platform/billing/bandwidth/",
+          "vultr-bandwidth": "https://docs.vultr.com/support/platform/billing/how-is-bandwidth-usage-calculated",
+          "lightsail-pricing": "https://aws.amazon.com/lightsail/pricing/",
+          "aws-pricing": "https://aws.amazon.com/pricing/",
+          "aws-ec2-pricing": "https://aws.amazon.com/ec2/pricing/on-demand/",
+          "aws-data-transfer-pricing": "https://aws.amazon.com/ec2/pricing/on-demand/#Data_Transfer",
+          "aws-ebs-pricing": "https://aws.amazon.com/ebs/pricing/",
+          "aws-s3-pricing": "https://aws.amazon.com/s3/pricing/",
+          "aws-lambda-pricing": "https://aws.amazon.com/lambda/pricing/",
+          "aws-fargate-pricing": "https://aws.amazon.com/fargate/pricing/",
+          "aws-ecs-pricing": "https://aws.amazon.com/ecs/pricing/",
+          "aws-eks-pricing": "https://aws.amazon.com/eks/pricing/",
+          "aws-rds-pricing": "https://aws.amazon.com/rds/pricing/",
+          "aws-dynamodb-pricing": "https://aws.amazon.com/dynamodb/pricing/",
+          "aws-elb-pricing": "https://aws.amazon.com/elasticloadbalancing/pricing/",
+          "aws-cloudfront-pricing": "https://aws.amazon.com/cloudfront/pricing/",
+          "aws-api-gateway-pricing": "https://aws.amazon.com/api-gateway/pricing/",
+          "aws-sqs-pricing": "https://aws.amazon.com/sqs/pricing/",
+          "aws-sns-pricing": "https://aws.amazon.com/sns/pricing/",
+          "aws-route53-pricing": "https://aws.amazon.com/route53/pricing/",
+          "aws-cloudwatch-pricing": "https://aws.amazon.com/cloudwatch/pricing/",
+          "gcp-pricing": "https://cloud.google.com/pricing",
+          "gcp-compute-pricing": "https://cloud.google.com/compute/pricing",
+          "gcp-disk-pricing": "https://cloud.google.com/compute/disks-image-pricing",
+          "gcp-network-pricing": "https://cloud.google.com/vpc/network-pricing",
+          "gcp-storage-pricing": "https://cloud.google.com/storage/pricing",
+          "gcp-cloud-sql-pricing": "https://cloud.google.com/sql/pricing",
+          "gcp-firestore-pricing": "https://cloud.google.com/firestore/pricing",
+          "gcp-bigquery-pricing": "https://cloud.google.com/bigquery/pricing",
+          "gcp-run-pricing": "https://cloud.google.com/run/pricing",
+          "gcp-gke-pricing": "https://cloud.google.com/kubernetes-engine/pricing",
+          "gcp-pubsub-pricing": "https://cloud.google.com/pubsub/pricing",
+          "gcp-cdn-pricing": "https://cloud.google.com/cdn/pricing",
+          "azure-pricing": "https://azure.microsoft.com/pricing/",
+          "azure-vm-pricing": "https://azure.microsoft.com/pricing/details/virtual-machines/linux/",
+          "azure-managed-disks-pricing": "https://azure.microsoft.com/pricing/details/managed-disks/",
+          "azure-bandwidth-pricing": "https://azure.microsoft.com/pricing/details/bandwidth/",
+          "azure-blob-storage-pricing": "https://azure.microsoft.com/pricing/details/storage/blobs/",
+          "azure-sql-database-pricing": "https://azure.microsoft.com/pricing/details/sql-database/single/",
+          "azure-cosmos-db-pricing": "https://azure.microsoft.com/pricing/details/cosmos-db/",
+          "azure-functions-pricing": "https://azure.microsoft.com/pricing/details/functions/",
+          "azure-app-service-pricing": "https://azure.microsoft.com/pricing/details/app-service/linux/",
+          "azure-aks-pricing": "https://azure.microsoft.com/pricing/details/kubernetes-service/",
+          "azure-front-door-pricing": "https://azure.microsoft.com/pricing/details/frontdoor/",
+          "deepseek-pricing": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "raft-library": "https://raw.githubusercontent.com/etcd-io/raft/main/README.md",
+          "pebble-checkpoint": "https://pkg.go.dev/github.com/cockroachdb/pebble",
+          "sqlite-fts5": "https://www.sqlite.org/fts5.html",
+          "reqwest-client-timeout": "https://docs.rs/reqwest/0.12.28/reqwest/struct.ClientBuilder.html",
+          "http-semantics": "https://www.rfc-editor.org/rfc/rfc9110.html",
+          "eventsource": "https://html.spec.whatwg.org/multipage/server-sent-events.html"
+        },
+        "cost_domains": [
+          "sql",
+          "storage",
+          "network",
+          "compute",
+          "cloudflare",
+          "vps"
+        ],
+        "instructions": "Read original_request, then inspect every project. list/find accept glob pattern and offset; read returns numbered source. Submit project coverage including exact inspected entry points, data paths, clients and cancellation/retry paths. No source execution or production access."
+      }
+    },
+    {
+      "reply": {
+        "conversation_url": "https://example.invalid/thread/2",
+        "messages": [
+          {
+            "role": "user",
+            "content": "audit"
+          }
+        ]
+      }
+    },
+    {
+      "reply": {
+        "matches": [
+          "app/server.py:3:     time.sleep(1)",
+          "app/db.py:1: SELECT 1;"
+        ],
+        "total": 2,
+        "next_offset": null
+      }
+    },
+    {
+      "reply": {
+        "source_reused_from": null,
+        "total_lines": 3,
+        "content": "2: while True:\n3:     time.sleep(1)",
+        "next_line": null
+      }
+    }
+  ]
+}

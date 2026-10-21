@@ -1,0 +1,3770 @@
+{
+  "clean-auditor": {
+    "valid-pass": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "accepted": true,
+        "verdict": "pass"
+      }
+    },
+    "valid-block": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "accepted": true,
+        "verdict": "block"
+      }
+    },
+    "invalid-verdict": {
+      "report": {
+        "verdict": "yes",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Invalid verdict"
+      }
+    },
+    "missing-summary": {
+      "report": {
+        "verdict": "pass",
+        "summary": "",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Summary and findings are required"
+      }
+    },
+    "findings-not-list": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": "none",
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Summary and findings are required"
+      }
+    },
+    "coverage-missing-domain": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Account for every domain: privacy, business_secret, operations_data, machine_path, personal_info, credentials, tooling, hardcoding, repository_scope"
+      }
+    },
+    "unknowns-not-list": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [],
+        "unknowns": "none"
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Unknowns must be an explicit list"
+      }
+    },
+    "finding-missing-key": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "findings[0].evidence is required and must not be empty"
+      }
+    },
+    "finding-sensitive-file": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [
+          {
+            "file": ".env",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Sensitive or invalid path; contents are unavailable to the reviewer"
+      }
+    },
+    "finding-bad-severity": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "critical",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Invalid finding severity"
+      }
+    },
+    "finding-bad-line": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 0,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "findings[0].line is required and must not be empty"
+      }
+    },
+    "pass-with-blocking": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Pass requires every changed diff reviewed and no blocking findings"
+      }
+    },
+    "pass-unreviewed": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Pass requires every changed diff reviewed and no blocking findings"
+      }
+    },
+    "block-without-blocking": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "advisory",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Block requires a concrete blocking finding; otherwise use incomplete"
+      }
+    },
+    "pass-unknown-coverage": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "unknown",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [],
+      "expected": {
+        "error": "Unknown applicable coverage cannot pass"
+      }
+    },
+    "bad-coverage-entry": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [],
+      "expected": {
+        "error": "coverage.hardcoding must be {status, reason}"
+      }
+    },
+    "incomplete-accepted": {
+      "report": {
+        "verdict": "incomplete",
+        "summary": "Reviewed.",
+        "coverage": {
+          "privacy": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "business_secret": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "operations_data": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "machine_path": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "personal_info": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "credentials": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tooling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "hardcoding": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "repository_scope": {
+            "status": "reviewed",
+            "reason": "reviewed the outgoing change for repository-scope references"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [],
+      "fetched": [],
+      "expected": {
+        "accepted": true,
+        "verdict": "incomplete"
+      }
+    }
+  },
+  "money-saver": {
+    "valid-pass": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "accepted": true,
+        "verdict": "pass"
+      }
+    },
+    "valid-block": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "before_after": "x",
+            "remedy": "x",
+            "validation": "x",
+            "sources": [
+              "https://example.invalid/pricing"
+            ]
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "accepted": true,
+        "verdict": "block"
+      }
+    },
+    "invalid-verdict": {
+      "report": {
+        "verdict": "yes",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Invalid verdict"
+      }
+    },
+    "missing-summary": {
+      "report": {
+        "verdict": "pass",
+        "summary": "",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Summary and findings are required"
+      }
+    },
+    "findings-not-list": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": "none",
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Summary and findings are required"
+      }
+    },
+    "coverage-missing-domain": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Account for every domain: sql, storage, network, compute, cloudflare, vps"
+      }
+    },
+    "unknowns-not-list": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": "none"
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Unknowns must be an explicit list"
+      }
+    },
+    "finding-missing-key": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "impact": "x",
+            "before_after": "x",
+            "remedy": "x",
+            "validation": "x",
+            "sources": [
+              "https://example.invalid/pricing"
+            ]
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "findings[0].evidence is required and must not be empty"
+      }
+    },
+    "finding-sensitive-file": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": ".env",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "before_after": "x",
+            "remedy": "x",
+            "validation": "x",
+            "sources": [
+              "https://example.invalid/pricing"
+            ]
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Sensitive or invalid path; contents are unavailable to the reviewer"
+      }
+    },
+    "finding-bad-severity": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "critical",
+            "evidence": "x",
+            "impact": "x",
+            "before_after": "x",
+            "remedy": "x",
+            "validation": "x",
+            "sources": [
+              "https://example.invalid/pricing"
+            ]
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Invalid finding severity"
+      }
+    },
+    "finding-bad-line": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 0,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "before_after": "x",
+            "remedy": "x",
+            "validation": "x",
+            "sources": [
+              "https://example.invalid/pricing"
+            ]
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "findings[0].line is required and must not be empty"
+      }
+    },
+    "pass-with-blocking": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "before_after": "x",
+            "remedy": "x",
+            "validation": "x",
+            "sources": [
+              "https://example.invalid/pricing"
+            ]
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Pass requires every changed diff reviewed and no blocking findings"
+      }
+    },
+    "pass-unreviewed": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Pass requires every changed diff reviewed and no blocking findings"
+      }
+    },
+    "block-without-blocking": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "advisory",
+            "evidence": "x",
+            "impact": "x",
+            "before_after": "x",
+            "remedy": "x",
+            "validation": "x",
+            "sources": [
+              "https://example.invalid/pricing"
+            ]
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Block requires a concrete blocking finding; otherwise use incomplete"
+      }
+    },
+    "pass-unknown-coverage": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "unknown",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [],
+      "expected": {
+        "error": "Unknown applicable coverage cannot pass"
+      }
+    },
+    "bad-coverage-entry": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [],
+      "expected": {
+        "error": "coverage.vps must be {status, reason}"
+      }
+    },
+    "incomplete-accepted": {
+      "report": {
+        "verdict": "incomplete",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [],
+      "fetched": [],
+      "expected": {
+        "accepted": true,
+        "verdict": "incomplete"
+      }
+    },
+    "sources-not-fetched": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "before_after": "x",
+            "remedy": "x",
+            "validation": "x",
+            "sources": [
+              "https://example.invalid/never-fetched"
+            ]
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "findings[0].sources must be a list of fetched official URL strings; available: https://example.invalid/pricing"
+      }
+    },
+    "pass-reviewed-without-documents": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "sql": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "storage": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "network": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "compute": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "cloudflare": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "vps": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [],
+      "expected": {
+        "error": "Applicable cost review requires official documentation"
+      }
+    }
+  },
+  "security-enhancer": {
+    "valid-pass": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "accepted": true,
+        "verdict": "pass"
+      }
+    },
+    "valid-block": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "accepted": true,
+        "verdict": "block"
+      }
+    },
+    "invalid-verdict": {
+      "report": {
+        "verdict": "yes",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Invalid verdict"
+      }
+    },
+    "missing-summary": {
+      "report": {
+        "verdict": "pass",
+        "summary": "",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Summary and findings are required"
+      }
+    },
+    "findings-not-list": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": "none",
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Summary and findings are required"
+      }
+    },
+    "coverage-missing-domain": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Account for every domain: dependency_supply_chain, ci_workflow_authority, secret_handling, transport_security, authz_defaults, container_runtime, release_artifacts"
+      }
+    },
+    "unknowns-not-list": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": "none"
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Unknowns must be an explicit list"
+      }
+    },
+    "finding-missing-key": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "findings[0].evidence is required and must not be empty"
+      }
+    },
+    "finding-sensitive-file": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": ".env",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Sensitive or invalid path; contents are unavailable to the reviewer"
+      }
+    },
+    "finding-bad-severity": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "critical",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Invalid finding severity"
+      }
+    },
+    "finding-bad-line": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 0,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "findings[0].line is required and must not be empty"
+      }
+    },
+    "pass-with-blocking": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Pass requires every changed diff reviewed and no blocking findings"
+      }
+    },
+    "pass-unreviewed": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Pass requires every changed diff reviewed and no blocking findings"
+      }
+    },
+    "block-without-blocking": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "advisory",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Block requires a concrete blocking finding; otherwise use incomplete"
+      }
+    },
+    "pass-unknown-coverage": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "unknown",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [],
+      "expected": {
+        "error": "Unknown applicable coverage cannot pass"
+      }
+    },
+    "bad-coverage-entry": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [],
+      "expected": {
+        "error": "coverage.release_artifacts must be {status, reason}"
+      }
+    },
+    "incomplete-accepted": {
+      "report": {
+        "verdict": "incomplete",
+        "summary": "Reviewed.",
+        "coverage": {
+          "dependency_supply_chain": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "ci_workflow_authority": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "secret_handling": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "transport_security": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "authz_defaults": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "container_runtime": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "release_artifacts": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [],
+      "fetched": [],
+      "expected": {
+        "accepted": true,
+        "verdict": "incomplete"
+      }
+    }
+  },
+  "sustainable-maintainer": {
+    "valid-pass": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "accepted": true,
+        "verdict": "pass"
+      }
+    },
+    "valid-block": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "accepted": true,
+        "verdict": "block"
+      }
+    },
+    "invalid-verdict": {
+      "report": {
+        "verdict": "yes",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Invalid verdict"
+      }
+    },
+    "missing-summary": {
+      "report": {
+        "verdict": "pass",
+        "summary": "",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Summary and findings are required"
+      }
+    },
+    "findings-not-list": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": "none",
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Summary and findings are required"
+      }
+    },
+    "coverage-missing-domain": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Account for every domain: structure, contracts, craft, duplication, tests, evolution"
+      }
+    },
+    "unknowns-not-list": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": "none"
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Unknowns must be an explicit list"
+      }
+    },
+    "finding-missing-key": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "findings[0].evidence is required and must not be empty"
+      }
+    },
+    "finding-sensitive-file": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": ".env",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Sensitive or invalid path; contents are unavailable to the reviewer"
+      }
+    },
+    "finding-bad-severity": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "critical",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Invalid finding severity"
+      }
+    },
+    "finding-bad-line": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 0,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "findings[0].line is required and must not be empty"
+      }
+    },
+    "pass-with-blocking": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "blocking",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Pass requires every changed diff reviewed and no blocking findings"
+      }
+    },
+    "pass-unreviewed": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Pass requires every changed diff reviewed and no blocking findings"
+      }
+    },
+    "block-without-blocking": {
+      "report": {
+        "verdict": "block",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [
+          {
+            "file": "src/main.rs",
+            "line": 1,
+            "severity": "advisory",
+            "evidence": "x",
+            "impact": "x",
+            "remedy": "x",
+            "validation": "x"
+          }
+        ],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [
+        "https://example.invalid/pricing"
+      ],
+      "expected": {
+        "error": "Block requires a concrete blocking finding; otherwise use incomplete"
+      }
+    },
+    "pass-unknown-coverage": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "unknown",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "unknown",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [],
+      "expected": {
+        "error": "Unknown applicable coverage cannot pass"
+      }
+    },
+    "bad-coverage-entry": {
+      "report": {
+        "verdict": "pass",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [
+        "src/main.rs"
+      ],
+      "fetched": [],
+      "expected": {
+        "error": "coverage.evolution must be {status, reason}"
+      }
+    },
+    "incomplete-accepted": {
+      "report": {
+        "verdict": "incomplete",
+        "summary": "Reviewed.",
+        "coverage": {
+          "structure": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "contracts": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "craft": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "duplication": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "tests": {
+            "status": "reviewed",
+            "reason": "looked"
+          },
+          "evolution": {
+            "status": "reviewed",
+            "reason": "looked"
+          }
+        },
+        "findings": [],
+        "unknowns": []
+      },
+      "changed": [
+        "src/main.rs"
+      ],
+      "reviewed": [],
+      "fetched": [],
+      "expected": {
+        "accepted": true,
+        "verdict": "incomplete"
+      }
+    }
+  }
+}
