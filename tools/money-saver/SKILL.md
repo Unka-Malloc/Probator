@@ -9,8 +9,10 @@ Every development Agent owns the cost and efficiency of its implementation. Appl
 the analysis criteria in the [review policy](policy.md) while changing service or client behavior, and remove
 demonstrably useless work in the authorized scope. Check official billing and
 technical documentation before making cost claims. The [official reference
-catalog](documents.json) is a starting point; use the actual deployment provider's
-official sources when it is not listed.
+catalog](documents.json) is the operator's source registry: the audit may fetch
+another page from a documentation host the catalog already names, so a missing
+catalog entry never justifies refusing a review. It may not fetch an unlisted
+host, a query or a fragment.
 The policy's read-only tool restrictions apply to the independent auditor; the
 implementing Agent still makes and verifies authorized improvements.
 
@@ -30,7 +32,7 @@ tokens or traffic and then throw the completed progress away.
 Before every push and pull request, allow Probator's mandatory Money Saver checker
 to finish. It audits the outgoing content at the publication boundary; local commits
 never trigger it.
-It runs on OpenCode under the provider, model and reasoning effort the synced profile declares.
+It runs under the provider, model and reasoning effort the synced profile declares.
 Fix blocking findings within the approved scope, then audit the changed candidate.
 An incomplete or failed audit does not pass. Do not disable hooks/checkers, use
 alternate hooksPath/commit-tree, forge receipts or switch providers to evade review.

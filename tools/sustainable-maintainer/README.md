@@ -12,8 +12,8 @@ or a pull request is about to publish, in two stages:
    artifacts (`*.orig`, `*.rej`, `*.LOCAL.*`), editor and OS junk
    (`.DS_Store`, `._*`, swap files). Nothing leaves the machine, nothing is
    written, and a refusal here costs no tokens.
-2. **Semantic, isolated OpenCode review** — only if stage one passes: a fresh,
-   durable OpenCode session over the same immutable range, on the provider/model
+2. **Semantic, isolated agent review** — only if stage one passes: a fresh,
+   durable audit session over the same immutable range, on the provider/model
    the synced `profile.json` declares, judging structure / contracts / craft /
    duplication / tests / evolution, and returning advisory findings with
    architecture advice for long-term maintainability.

@@ -2,21 +2,52 @@
   "name": "security-enhancer",
   "title": "Security Enhancer",
   "summary": "Pre-release hardening gate: supply chain, CI authority, secret handling, transport, authorization defaults, containers and release artifacts.",
-  "domains": ["dependency_supply_chain", "ci_workflow_authority", "secret_handling", "transport_security", "authz_defaults", "container_runtime", "release_artifacts"],
-  "finding_keys": ["file", "line", "severity", "evidence", "impact", "remedy", "validation"],
+  "domains": [
+    "dependency_supply_chain",
+    "ci_workflow_authority",
+    "secret_handling",
+    "transport_security",
+    "authz_defaults",
+    "container_runtime",
+    "release_artifacts"
+  ],
+  "finding_keys": [
+    "file",
+    "line",
+    "severity",
+    "evidence",
+    "impact",
+    "remedy",
+    "validation"
+  ],
   "stage1": {
     "label": "static",
     "surfaces": true,
     "refusal": "The static security checklist refused this operation; nothing was published",
     "rules": [
-      {"id": "security-static-checklist", "title": "The static security checklist over the outgoing revision", "kind": "builtin", "builtin": "security-static-checklist"}
+      {
+        "id": "security-static-checklist",
+        "title": "The static security checklist over the outgoing revision",
+        "kind": "builtin",
+        "builtin": "static-checklist"
+      }
     ]
   },
-  "on": ["pre-push", "pr", "release"],
+  "on": [
+    "pre-push",
+    "pr",
+    "release"
+  ],
   "severity": "blocking",
   "tools": {
     "name_prefix": "security",
-    "context": ["inventory", "list", "diff", "read", "find"],
+    "context": [
+      "inventory",
+      "list",
+      "diff",
+      "read",
+      "find"
+    ],
     "submit": true,
     "descriptions": {
       "context": "Inspect the immutable outgoing range. Start with inventory (it lists the surfaces the static stage already reported), then diff every changed file to its end; read is {read_page_lines} lines with start; find is a literal search over the range. Credential containers are unavailable by design.",

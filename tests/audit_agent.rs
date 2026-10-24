@@ -15,15 +15,28 @@ fn va_stub() -> PathBuf {
     path
 }
 
+/// A pinned, executable stand-in for the trusted Pi installation. The stub
+/// `va` never spawns it; the host validates its provenance before `va` runs.
+fn pi_stub() -> PathBuf {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pi");
+    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+    path
+}
+
 struct Fixture {
     contract_dir: PathBuf,
     run_dir: PathBuf,
     stub_dir: PathBuf,
+    user_home: PathBuf,
     mode: String,
     profile: String,
     agent: String,
     model: String,
     session: String,
+    pi_agent_dir: Option<PathBuf>,
+    pi_bin: Option<PathBuf>,
+    path_override: Option<std::ffi::OsString>,
+    va_missing: bool,
 }
 impl Fixture {
     fn new(mode: &str) -> Self {
@@ -39,9 +52,11 @@ impl Fixture {
         let contract_dir = root.join("contract");
         let run_dir = root.join("run");
         let stub_dir = root.join("stub");
+        let user_home = root.join("user-home");
         std::fs::create_dir_all(&contract_dir).unwrap();
         std::fs::create_dir_all(&run_dir).unwrap();
         std::fs::create_dir_all(&stub_dir).unwrap();
+        std::fs::create_dir_all(&user_home).unwrap();
         let document = json!({
             "agents": {
                 "opencode": {"id": "opencode", "lane": "acp", "command": {"program": "opencode", "args": []}},
@@ -106,12 +121,25 @@ impl Fixture {
             contract_dir,
             run_dir,
             stub_dir,
+            user_home,
             mode: mode.to_string(),
             profile: "synthetic-reviewer".into(),
             agent: "opencode".into(),
             model: "opencode/stub-free".into(),
             session: "acp-stub-session".into(),
+            pi_agent_dir: None,
+            pi_bin: None,
+            path_override: None,
+            va_missing: false,
         }
+    }
+
+    fn write_user_registry(&self, document: &Value) {
+        std::fs::write(
+            self.user_home.join("registry.json"),
+            serde_json::to_string_pretty(document).unwrap(),
+        )
+        .unwrap();
     }
 
     fn write_document(&self, document: &Value) {
@@ -144,36 +172,50 @@ impl Fixture {
 
     fn invoke(&self) -> (bool, Value) {
         let wrapper = self.stub_dir.join("va");
-        std::fs::write(
-            &wrapper,
-            format!(
-                "#!/bin/sh\nexec \"${{PYTHON:-python3}}\" \"{}\" \"$@\"\n",
-                va_stub().display()
-            ),
-        )
-        .unwrap();
-        let _ = std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755));
-        let output = Command::new(env!("CARGO_BIN_EXE_probator-agent"))
-            .args([
-                "--contract",
-                self.contract_dir.to_str().unwrap(),
-                "--run",
-                self.run_dir.to_str().unwrap(),
-            ])
-            .env("PROBATOR_VA_BIN", &wrapper)
-            .env("PROBATOR_VA_STUB_DIR", &self.stub_dir)
-            .env("PROBATOR_VA_STUB_MODE", &self.mode)
-            .env("PROBATOR_VA_STUB_PROFILE", &self.profile)
-            .env("PROBATOR_VA_STUB_AGENT", &self.agent)
-            .env("PROBATOR_VA_STUB_MODEL", &self.model)
-            .env("PROBATOR_VA_STUB_SESSION", &self.session)
-            .env("PYTHONUNBUFFERED", "1")
-            .current_dir(&self.run_dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
+        if self.va_missing {
+            let _ = std::fs::remove_file(&wrapper);
+        } else {
+            std::fs::write(
+                &wrapper,
+                format!(
+                    "#!/bin/sh\nexec \"${{PYTHON:-python3}}\" \"{}\" \"$@\"\n",
+                    va_stub().display()
+                ),
+            )
             .unwrap();
+            let _ = std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755));
+        }
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_probator-agent"));
+        cmd.args([
+            "--contract",
+            self.contract_dir.to_str().unwrap(),
+            "--run",
+            self.run_dir.to_str().unwrap(),
+        ])
+        .env("PROBATOR_VA_BIN", &wrapper)
+        .env("VIRTUAL_AGENT_HOME", &self.user_home)
+        .env("PROBATOR_VA_STUB_DIR", &self.stub_dir)
+        .env("PROBATOR_VA_STUB_MODE", &self.mode)
+        .env("PROBATOR_VA_STUB_PROFILE", &self.profile)
+        .env("PROBATOR_VA_STUB_AGENT", &self.agent)
+        .env("PROBATOR_VA_STUB_MODEL", &self.model)
+        .env("PROBATOR_VA_STUB_SESSION", &self.session)
+        .env(
+            "PROBATOR_PI_BIN",
+            self.pi_bin.clone().unwrap_or_else(pi_stub),
+        )
+        .env("PYTHONUNBUFFERED", "1")
+        .current_dir(&self.run_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+        if let Some(dir) = &self.pi_agent_dir {
+            cmd.env("PI_CODING_AGENT_DIR", dir);
+        }
+        if let Some(path) = &self.path_override {
+            cmd.env("PATH", path);
+        }
+        let output = cmd.output().unwrap();
         assert!(output.stdout.len() < 1024);
         let text = String::from_utf8(output.stdout).unwrap();
         let root = self.contract_dir.parent().unwrap();
@@ -486,7 +528,28 @@ fn va_serving_the_rpc_fallback_is_admitted() {
     );
     assert_eq!(fixture.records("session-open.jsonl").len(), 1);
     assert_eq!(fixture.records("session-open.jsonl")[0]["binding"], "audit");
-    assert!(fixture.run_dir.join(".pi/mcp.json").exists());
+    // The project config must carry the declared audit server - and silence
+    // every server the user's global agent config would otherwise leak in.
+    let pi_dir = fixture.stub_dir.join("pi-agent");
+    std::fs::create_dir_all(&pi_dir).unwrap();
+    std::fs::write(
+        pi_dir.join("mcp.json"),
+        json!({"mcpServers": {"foreign-corp": {"command": "evil"}}}).to_string(),
+    )
+    .unwrap();
+    fixture.pi_agent_dir = Some(pi_dir);
+    let (ok, result) = fixture.invoke();
+    assert!(ok, "{result}");
+    let mcp: Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture.run_dir.join(".pi/mcp.json")).unwrap(),
+    )
+    .unwrap();
+    let servers = &mcp["mcpServers"];
+    assert_eq!(servers["foreign-corp"]["enabled"], false);
+    assert!(
+        servers["probator-audit"]["command"].is_string(),
+        "declared audit server must keep its real definition: {servers}"
+    );
 }
 
 #[test]
@@ -585,4 +648,478 @@ fn an_unadmitted_serving_profile_fails_closed() {
     assert!(!ok, "{result}");
     assert_eq!(result["failure"]["code"], "audit_served_not_admitted");
     assert!(fixture.records("session-prompt.jsonl").is_empty());
+}
+
+fn audit_safe_pi_agent(id: &str) -> Value {
+    json!({
+        "id": id,
+        "clientName": "pi",
+        "lane": "rpc",
+        "command": {
+            "program": "pi",
+            "args": [
+                "--mode", "rpc", "--approve",
+                "--tools", "codemode,mcp__probator_audit__*",
+                "--no-extensions",
+                "-e", "builtin:mcp",
+                "-e", "builtin:codemode",
+                "-e", "builtin:tool-search",
+                "--no-skills", "--no-prompt-templates", "--no-context-files"
+            ]
+        }
+    })
+}
+
+fn checker_named_user_registry() -> Value {
+    json!({
+        "agents": {
+            "pi-audit": audit_safe_pi_agent("pi-audit")
+        },
+        "profiles": {
+            "audit-fast": {"agent": "pi-audit", "model": ""},
+            "audit-deep": {"agent": "pi-audit", "model": "openai/gpt-6.1-sol"}
+        },
+        "bindings": {
+            "synthetic-reviewer": {
+                "profile": "audit-fast",
+                "fallbacks": ["audit-deep"]
+            }
+        }
+    })
+}
+
+/// Point the stub `va` at a profile the checker-named `pi-audit` binding can
+/// serve, so a test that expects admission does not fail on profile custody.
+fn admit_pi_binding(fixture: &mut Fixture) {
+    fixture.profile = "audit-fast".into();
+    fixture.agent = "pi-audit".into();
+    fixture.model = String::new();
+    fixture.session = "pi-default-session".into();
+}
+
+/// The operator's Agents choice wins over the packaged runtime: the audit
+/// opens the checker-named binding through `va serve`, and VA may hand the
+/// session to any profile in its fallback chain. The host must not walk that
+/// chain itself, and the contract's harness/model must not leak into the
+/// operator's profile.
+#[test]
+fn a_checker_named_binding_owns_harness_and_fallback_chain() {
+    let mut fixture = Fixture::new("complete");
+    fixture.write_user_registry(&checker_named_user_registry());
+    fixture.profile = "audit-deep".into();
+    fixture.agent = "pi-audit".into();
+    fixture.model = "openai/gpt-6.1-sol".into();
+    fixture.session = "pi-user-session".into();
+    let (ok, result) = fixture.invoke();
+    assert!(ok, "{result}");
+    assert_eq!(result["completed"], true);
+    assert_eq!(result["profile"]["id"], "synthetic-reviewer");
+    assert_eq!(
+        result["served"],
+        json!({"profile": "audit-deep", "agent": "pi-audit", "model": "openai/gpt-6.1-sol"})
+    );
+    let opens = fixture.records("session-open.jsonl");
+    assert_eq!(opens.len(), 1, "{opens:?}");
+    assert_eq!(opens[0]["binding"], "synthetic-reviewer");
+    assert!(
+        opens[0].get("profile").is_none(),
+        "the binding, not a fixed profile, must be named"
+    );
+    assert_eq!(
+        opens[0]["patch"]["instructions"],
+        "Only inspect synthetic evidence."
+    );
+    assert_eq!(opens[0]["patch"]["mcpServers"][0]["name"], "probator-audit");
+    assert!(
+        opens[0]["patch"].get("model").is_none(),
+        "the operator's model choice must not be overlaid by the contract"
+    );
+    assert!(opens[0]["patch"].get("agent").is_none());
+    assert!(
+        opens[0]["patch"].get("permission").is_none(),
+        "ACP lanes do not advertise a permission selector; forcing one would refuse the open"
+    );
+    assert_eq!(opens[0]["patch"]["env"], json!({}));
+    assert_eq!(opens[0]["patch"]["mechanisms"], Value::Null);
+    assert_eq!(opens[0]["patch"]["skillReferences"], json!([]));
+    assert_eq!(opens[0]["patch"]["mode"], Value::Null);
+    let spawned = fixture.records("va-spawned.jsonl");
+    assert_eq!(
+        spawned[0]["virtual_agent_home"],
+        fixture.user_home.to_string_lossy().as_ref()
+    );
+    assert!(
+        !fixture.run_dir.join("va-home/registry.json").exists(),
+        "a configured checker binding must not be replaced by a packaged document"
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(
+            &std::fs::read_to_string(fixture.run_dir.join("audit-session.json")).unwrap()
+        )
+        .unwrap()["session_id"],
+        "pi-user-session"
+    );
+}
+
+/// A checker-named binding may not substitute an arbitrary harness command:
+/// a serve/ACP agent whose native tool set is not the audit allowlist is
+/// refused before `va` starts.
+#[test]
+fn a_serve_binding_without_an_audit_safe_command_is_refused() {
+    let mut fixture = Fixture::new("complete");
+    fixture.write_user_registry(&json!({
+        "agents": {
+            "opencode-default": {"id": "opencode-default", "clientName": "opencode", "lane": "serve"}
+        },
+        "profiles": {
+            "audit-serve": {"agent": "opencode-default", "model": "opencode/stub-free"}
+        },
+        "bindings": {
+            "synthetic-reviewer": {"profile": "audit-serve"}
+        }
+    }));
+    fixture.profile = "audit-serve".into();
+    fixture.agent = "opencode-default".into();
+    fixture.model = "opencode/stub-free".into();
+    fixture.session = "opencode-stub-session".into();
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert!(
+        !fixture.spawned(),
+        "an unsafe custom agent never reaches va"
+    );
+}
+
+/// A checker-named binding may not point the audit at an arbitrary
+/// executable that happens to be called `pi`: the path must canonicalize to
+/// the gate's trusted installation.
+#[test]
+fn a_counterfeit_absolute_pi_program_is_refused() {
+    let fixture = Fixture::new("complete");
+    let root = fixture.contract_dir.parent().unwrap();
+    let counterfeit = root.join("pi");
+    std::fs::write(&counterfeit, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&counterfeit, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut registry = checker_named_user_registry();
+    registry["agents"]["pi-audit"]["command"]["program"] = json!(counterfeit.to_string_lossy());
+    fixture.write_user_registry(&registry);
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert!(
+        !fixture.spawned(),
+        "a counterfeit executable never reaches va"
+    );
+}
+
+/// An absent path in a trusted installation directory is harmless only when
+/// it is the Pi name itself; a differently named future binary is refused.
+#[test]
+fn a_differently_named_path_in_a_trusted_directory_is_refused() {
+    let fixture = Fixture::new("complete");
+    let trusted_dir = pi_stub().canonicalize().unwrap();
+    let candidate = trusted_dir.parent().unwrap().join("not-pi");
+    let mut registry = checker_named_user_registry();
+    registry["agents"]["pi-audit"]["command"]["program"] = json!(candidate.to_string_lossy());
+    fixture.write_user_registry(&registry);
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert!(!fixture.spawned());
+}
+
+/// A pinned symlink may point within its installation directory but may not
+/// escape to an arbitrary executable.
+#[test]
+fn a_symlinked_pin_outside_its_directory_is_refused() {
+    let mut fixture = Fixture::new("complete");
+    let root = fixture.contract_dir.parent().unwrap();
+    let evil = root.join("evil-pi");
+    std::fs::write(&evil, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&evil, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let link = bin.join("pi");
+    std::os::unix::fs::symlink(&evil, &link).unwrap();
+    fixture.pi_bin = Some(link);
+    fixture.write_user_registry(&checker_named_user_registry());
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert!(!fixture.spawned(), "an escaped symlink never reaches va");
+}
+
+/// A custom pin is accepted only when its canonical file is still named
+/// `pi`: the child resolves the bare name through the pin's directory, so a
+/// differently named executable would leave that lookup unbound.
+#[test]
+fn a_pinned_runner_with_another_name_is_refused() {
+    let mut fixture = Fixture::new("complete");
+    let root = fixture.contract_dir.parent().unwrap();
+    let other = root.join("reviewer");
+    std::fs::write(&other, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&other, std::fs::Permissions::from_mode(0o755)).unwrap();
+    fixture.pi_bin = Some(other);
+    fixture.write_user_registry(&checker_named_user_registry());
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert!(
+        !fixture.spawned(),
+        "a differently named pin never reaches va"
+    );
+}
+
+/// A `pi` symlink may not resolve to a differently named target: the PATH
+/// prefix would then contain a `pi` the validation never saw.
+#[test]
+fn a_pi_symlink_to_a_differently_named_target_is_refused() {
+    let mut fixture = Fixture::new("complete");
+    let root = fixture.contract_dir.parent().unwrap();
+    let target = root.join("reviewer");
+    std::fs::write(&target, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let link = bin.join("pi");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    fixture.pi_bin = Some(link);
+    fixture.write_user_registry(&checker_named_user_registry());
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert!(!fixture.spawned(), "an aliased pin never reaches va");
+}
+
+/// The object `program.resolve` form must hold every candidate to the same
+/// trusted installation; one counterfeit path refuses the whole binding.
+#[test]
+fn a_counterfeit_pi_inside_a_resolve_list_is_refused() {
+    let fixture = Fixture::new("complete");
+    let root = fixture.contract_dir.parent().unwrap();
+    let counterfeit = root.join("pi");
+    std::fs::write(&counterfeit, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&counterfeit, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut registry = checker_named_user_registry();
+    registry["agents"]["pi-audit"]["command"]["program"] = json!({
+        "resolve": ["pi", counterfeit.to_string_lossy()]
+    });
+    fixture.write_user_registry(&registry);
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert!(!fixture.spawned());
+}
+
+/// The same resolve form is admitted when it names the pinned installation.
+#[test]
+fn a_resolve_list_naming_the_pinned_pi_is_admitted() {
+    let mut fixture = Fixture::new("complete");
+    let trusted = pi_stub().canonicalize().unwrap();
+    let mut registry = checker_named_user_registry();
+    registry["agents"]["pi-audit"]["command"]["program"] = json!({
+        "resolve": ["pi", trusted.to_string_lossy()]
+    });
+    fixture.write_user_registry(&registry);
+    admit_pi_binding(&mut fixture);
+    let (ok, result) = fixture.invoke();
+    assert!(ok, "{result}");
+}
+
+/// A shadow `pi` earlier on PATH is not the pinned installation: validation
+/// ignores PATH, and the `va` child receives the trusted directory first.
+#[test]
+fn a_path_shadowed_pi_does_not_replace_the_pinned_executable() {
+    let mut fixture = Fixture::new("complete");
+    let shadow = fixture.contract_dir.parent().unwrap().join("shadow-bin");
+    std::fs::create_dir_all(&shadow).unwrap();
+    let shadow_pi = shadow.join("pi");
+    std::fs::write(&shadow_pi, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&shadow_pi, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut registry = checker_named_user_registry();
+    registry["agents"]["pi-audit"]["command"]["program"] = json!("pi");
+    fixture.write_user_registry(&registry);
+    admit_pi_binding(&mut fixture);
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    let mut paths = vec![shadow];
+    paths.extend(std::env::split_paths(&inherited));
+    fixture.path_override = Some(std::env::join_paths(paths).unwrap());
+    let (ok, result) = fixture.invoke();
+    assert!(ok, "{result}");
+    let pinned = pi_stub().canonicalize().unwrap();
+    let spawned = fixture.records("va-spawned.jsonl");
+    let path = spawned[0]["path"].as_str().expect("the stub records PATH");
+    assert_eq!(
+        std::env::split_paths(path).next().as_deref(),
+        pinned.parent(),
+        "the trusted Pi directory must be first on the child's PATH"
+    );
+}
+
+/// Without a checker-named binding the packaged installation document still
+/// owns the run-local `audit` binding, exactly as before this change.
+#[test]
+fn no_checker_binding_keeps_the_packaged_audit_binding() {
+    let fixture = Fixture::new("complete");
+    fixture.write_user_registry(&json!({
+        "agents": {
+            "pi-default": {"id": "pi-default", "clientName": "pi", "lane": "acp"}
+        },
+        "profiles": {
+            "some-other-role": {"agent": "pi-default", "model": ""}
+        },
+        "bindings": {
+            "some-other-role": {"profile": "some-other-role"}
+        }
+    }));
+    let (ok, result) = fixture.invoke();
+    assert!(ok, "{result}");
+    assert_eq!(result["served"]["profile"], "synthetic-reviewer");
+    let opens = fixture.records("session-open.jsonl");
+    assert_eq!(opens[0]["binding"], "audit");
+    let spawned = fixture.records("va-spawned.jsonl");
+    assert_eq!(
+        spawned[0]["virtual_agent_home"],
+        fixture.run_dir.join("va-home").to_string_lossy().as_ref()
+    );
+    let home: Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture.run_dir.join("va-home/registry.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(home["bindings"]["audit"]["profile"], "synthetic-reviewer");
+}
+
+/// A binding under the checker's name is an operator decision, not a hint: a
+/// malformed one refuses instead of silently running the packaged profile.
+#[test]
+fn a_malformed_checker_binding_is_refused_not_silently_packaged() {
+    let fixture = Fixture::new("complete");
+    fixture.write_user_registry(&json!({
+        "agents": {},
+        "profiles": {},
+        "bindings": {
+            "synthetic-reviewer": {"profile": "missing-profile"}
+        }
+    }));
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert!(!fixture.spawned());
+}
+
+/// A checker-named profile chooses the harness and model, never a stronger
+/// tool surface. A permission, environment, cwd, mechanism, MCP server,
+/// skill or mode the gate did not project refuses before `va` starts.
+#[test]
+fn a_checker_binding_cannot_add_a_capability_the_gate_did_not_project() {
+    for (field, value) in [
+        ("permission", json!("full")),
+        ("env", json!({"LD_PRELOAD": "/tmp/unsafe.so"})),
+        ("cwd", json!("/tmp")),
+        ("mechanisms", json!({"shell": true})),
+        ("mcpServers", json!([{"name": "shell"}])),
+        ("skillReferences", json!(["shell"])),
+        ("mode", json!("auto-approve")),
+    ] {
+        let fixture = Fixture::new("complete");
+        let mut registry = checker_named_user_registry();
+        registry["profiles"]["audit-fast"][field] = value;
+        fixture.write_user_registry(&registry);
+        let (ok, result) = fixture.invoke();
+        assert!(!ok, "{field} must refuse: {result}");
+        assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+        assert!(!fixture.spawned(), "{field} must refuse before spawning va");
+    }
+}
+
+/// A fallback can serve the session too, so its capability surface is checked
+/// with the primary's.
+#[test]
+fn an_unsafe_fallback_candidate_refuses_the_binding() {
+    let fixture = Fixture::new("complete");
+    let mut registry = checker_named_user_registry();
+    registry["profiles"]["audit-deep"]["permission"] = json!("full");
+    fixture.write_user_registry(&registry);
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert!(!fixture.spawned());
+}
+
+/// No `va` at all keeps the pre-existing fail-closed behaviour: the host
+/// refuses with `audit_va_unavailable` rather than inventing a session.
+#[test]
+fn a_missing_va_binary_keeps_the_existing_refusal() {
+    let mut fixture = Fixture::new("complete");
+    fixture.va_missing = true;
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["completed"], false);
+    assert_eq!(result["failure"]["code"], "audit_va_unavailable");
+    assert!(fixture.records("session-prompt.jsonl").is_empty());
+}
+
+/// Agents may leave an audit profile's model to the agent's client default
+/// (Agent Management writes `model: ""`). The checker binding admits that
+/// choice instead of forcing the contract's packaged model onto it.
+#[test]
+fn a_client_default_model_is_admitted_for_a_checker_binding() {
+    let mut fixture = Fixture::new("complete");
+    fixture.write_user_registry(&checker_named_user_registry());
+    fixture.profile = "audit-fast".into();
+    fixture.agent = "pi-audit".into();
+    fixture.model = String::new();
+    fixture.session = "pi-default-session".into();
+    let (ok, result) = fixture.invoke();
+    assert!(ok, "{result}");
+    assert_eq!(result["profile"]["id"], "synthetic-reviewer");
+    assert_eq!(result["served"]["profile"], "audit-fast");
+    assert_eq!(result["served"]["agent"], "pi-audit");
+    assert_eq!(result["served"]["model"], "");
+    assert_eq!(
+        fixture.records("session-open.jsonl")[0]["binding"],
+        "synthetic-reviewer"
+    );
+}
+
+/// The four publication checkers resolve their own operator binding by the
+/// contract name, not a shared `audit` key.
+#[test]
+fn each_auditor_resolves_its_own_checker_named_binding() {
+    for id in [
+        "clean-auditor",
+        "money-saver",
+        "security-enhancer",
+        "sustainable-maintainer",
+    ] {
+        let mut fixture = Fixture::new("complete");
+        let mut contract: Value = serde_json::from_str(
+            &std::fs::read_to_string(fixture.contract_dir.join("contract.json")).unwrap(),
+        )
+        .unwrap();
+        contract["name"] = json!(id);
+        std::fs::write(
+            fixture.contract_dir.join("contract.json"),
+            serde_json::to_string(&contract).unwrap(),
+        )
+        .unwrap();
+        let mut registry = checker_named_user_registry();
+        let binding = registry["bindings"]["synthetic-reviewer"].clone();
+        registry["bindings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("synthetic-reviewer");
+        registry["bindings"][id] = binding;
+        fixture.write_user_registry(&registry);
+        fixture.profile = "audit-fast".into();
+        fixture.agent = "pi-audit".into();
+        fixture.model = String::new();
+        fixture.session = format!("{id}-session");
+        let (ok, result) = fixture.invoke();
+        assert!(ok, "{id}: {result}");
+        assert_eq!(result["profile"]["id"], id);
+        assert_eq!(fixture.records("session-open.jsonl")[0]["binding"], id);
+        assert_eq!(result["served"]["profile"], "audit-fast");
+    }
 }

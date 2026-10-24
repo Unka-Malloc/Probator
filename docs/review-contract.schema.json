@@ -46,7 +46,7 @@
               "pattern": {"type": "string", "maxLength": 800, "description": "kind=regex: the deterministic pattern, run locally at zero token cost. An inline (?i) carries case-insensitivity."},
               "target": {"type": "string", "enum": ["revision-lines", "added-lines", "removed-lines", "changed-paths"], "description": "kind=regex: what the pattern applies to - every line of the reviewed revision, the added or removed diff lines, or the path names the review carries."},
               "prompt": {"type": "string", "maxLength": 4000, "description": "kind=prompt: a judgement the reviewer must make, surfaced as a checklist item."},
-              "builtin": {"type": "string", "enum": ["withheld-names-and-credentials", "maintainer-hygiene", "security-static-checklist", "dependency-direction"], "description": "kind=builtin: a deterministic check the runtime ships as code; declared by name so the contract never carries executable text. Each builtin owns one coupled scan pass whose hit ordering and refusal priority are its semantics."}
+              "builtin": {"type": "string", "enum": ["withheld-names-and-credentials", "workspace-hygiene", "static-checklist", "dependency-direction"], "description": "kind=builtin: a deterministic check the runtime ships as code; declared by name so the contract never carries executable text. Each builtin owns one coupled scan pass whose hit ordering and refusal priority are its semantics."}
             },
             "allOf": [
               {"if": {"properties": {"kind": {"const": "regex"}}, "required": ["kind"]},

@@ -1,12 +1,12 @@
-//! The sha256 chain shared by run records (the main crate's records.rs) and
-//! review receipts (the review crate's engine.rs). Both sides must compute
-//! the same seal over the same canonical content or one side's verification
-//! means nothing to the other's writes - so there is one implementation.
+//! The sha256 chain shared by the review binary's run records (records.rs) and
+//! its review receipts (engine.rs). Both sides must compute the same seal over
+//! the same canonical content or one side's verification means nothing to the
+//! other's writes - so there is one implementation.
 
 use serde_json::Value;
 use std::path::Path;
 
-fn sha256_hex(text: &str) -> String {
+pub(crate) fn sha256_hex(text: &str) -> String {
     use sha2::Digest as _;
     sha2::Sha256::digest(text.as_bytes())
         .iter()

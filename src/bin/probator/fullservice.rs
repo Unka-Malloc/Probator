@@ -353,19 +353,20 @@ impl FullEvidence {
             else {
                 continue;
             };
-            if !documents.in_catalog(&key) {
-                continue;
-            }
             let Ok(raw) = std::fs::read_to_string(&path) else {
                 continue;
             };
             let Ok(saved) = serde_json::from_str::<Value>(&raw) else {
                 continue;
             };
+            let url = saved["url"].as_str().unwrap_or("").to_string();
+            if !documents.restorable(&key, &url) {
+                continue;
+            }
             documents.restore(
                 key,
                 crate::documents::Doc {
-                    url: saved["url"].as_str().unwrap_or("").to_string(),
+                    url,
                     accessed: saved["accessed"].as_str().unwrap_or("").to_string(),
                     content: saved["content"].as_str().unwrap_or("").to_string(),
                 },

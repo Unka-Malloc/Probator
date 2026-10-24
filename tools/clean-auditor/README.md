@@ -11,11 +11,11 @@ request or a merge request is about to publish, in two stages:
    revision: withheld names over the whole revision, and credential shapes by
    format. One `git grep` answers both, nothing leaves the machine, nothing is
    written, and a refusal here costs no tokens.
-2. **Semantic, isolated OpenCode review** — only if stage one passes: a fresh,
-   durable OpenCode session over the same immutable range, on the provider/model
+2. **Semantic, isolated agent review** — only if stage one passes: a fresh,
+   durable audit session over the same immutable range, on the provider/model
    the synced `profile.json` declares, judging privacy / business_secret /
    operations_data / machine_path /
-   personal_info / credentials, plus the two standing items below.
+   personal_info / credentials, plus the three standing items below.
 
 It only refuses. It never stages, edits, commits or fixes anything; the working
 tree is byte-identical before and after a run. There is no skip flag and no
@@ -50,9 +50,9 @@ does not silence the audit, it refuses.
 Hook files are owned by `~/.git-hooks/_dispatch`; the installer never writes
 them.
 
-## Withheld names, and the two standing items
+## Withheld names, and the three standing items
 
-Three checks sit outside the six domains.
+Four checks sit outside the six domains.
 
 **Withheld names** are decided by the deterministic stage, locally and for free.
 The list is machine state — `$XDG_CONFIG_HOME/probator/withheld-names.txt`,
@@ -105,6 +105,14 @@ into logic is blocking; a named local constant used once, next to the behaviour
 it describes, is not. Overlap resolves to the specific domain — an absolute path
 is `machine_path`, a credential is `credentials` — and this item judges where the
 value lives, not whether it is secret. Coverage `hardcoding` is required on every
+review, and `unknown` cannot pass.
+
+**The repository-scope item** is the third coverage item: every file's
+subject must be this repository. Material owned by a different repository,
+project or tool workspace — another codebase's audit or inspection reports,
+plans produced for another programme, a foreign tool's state or session
+exports — is a finding wherever it sits, including an inherited file the
+change carries forward. Coverage `repository_scope` is required on every
 review, and `unknown` cannot pass.
 
 ## Boundaries an operator must know

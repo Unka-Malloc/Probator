@@ -17,7 +17,7 @@ never modifies anything.
   that was protecting a key file, a manifest that moves without its lockfile.
   The checklist runs locally and refuses at once; no token is spent.
 - **semantic refusal** (stage two): the seven domains judged by an isolated
-  OpenCode conversation with a fresh context each run.
+  agent session with a fresh context each run.
 
 Repair the change, then publish again. Do not re-word a finding away and do not
 look for a skip: the checker reads no environment variable and no file in the

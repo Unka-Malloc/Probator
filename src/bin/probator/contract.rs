@@ -35,8 +35,8 @@ pub const EVENTS: [&str; 7] = [
 pub const BUILTINS: [&str; 4] = [
     "withheld-names-and-credentials",
     "dependency-direction",
-    "maintainer-hygiene",
-    "security-static-checklist",
+    "workspace-hygiene",
+    "static-checklist",
 ];
 /// What a regex rule's pattern applies to.
 pub const RULE_TARGETS: [&str; 4] = [
@@ -891,7 +891,7 @@ mod tests {
                  "pattern": "^(<{7}|={7}|>{7})", "target": "added-lines"},
                 {"id": "intent", "title": "Stated intent", "kind": "prompt",
                  "prompt": "Does the change state its intent?"},
-                {"id": "hygiene", "title": "Hygiene", "kind": "builtin", "builtin": "maintainer-hygiene"}
+                {"id": "hygiene", "title": "Hygiene", "kind": "builtin", "builtin": "workspace-hygiene"}
             ]
         });
         contract["on"] = json!(["pre-push", "pr"]);

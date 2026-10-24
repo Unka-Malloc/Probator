@@ -1,0 +1,5 @@
+#!/bin/sh
+# Deterministic stand-in for the trusted Pi installation in audit-agent tests.
+# The mock `va serve` never spawns it; the host only canonicalizes it and
+# checks that it is an executable regular file.
+exit 0

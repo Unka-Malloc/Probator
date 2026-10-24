@@ -1,6 +1,6 @@
 # Money Saver
 
-Money Saver is a blocking Probator checker whose model runtime is OpenCode. The
+Money Saver is a blocking Probator checker whose model runtime is the agent the synced profile declares. The
 provider, model and thinking effort come from the `runtime` block of the
 synced `profile.json` — a published profile in the registry is the
 configuration mapping, hash-checked like the policy, not a local guess.
@@ -10,11 +10,11 @@ then run `probator install --source tools/money-saver`. Installation copies poli
 tools outside repositories to the checker's private profile directory and
 registers the checker, and writes the checker's declared AwP registry
 document. Install `probator-agent` on PATH first; it resolves that
-document through AwP and opens an ACP session whose only MCP server is the
-stateful `probator serve` process. The review engine owns evidence,
-state and receipts; OpenCode owns the durable conversation. The base
-instructions are the synced policy plus the review date. The isolated
-OpenCode home links the operator's existing sign-in without copying credential
+document through AwP and opens a session via `va serve` whose only MCP server
+is the stateful `probator serve` process. The review engine owns
+evidence, state and receipts; the declared agent owns the durable
+conversation. The base
+instructions are the synced policy plus the review date. The isolated agent home links the operator's existing sign-in without copying credential
 values. Probator retains its existing identity routing.
 
 The maintained shared skill is installed at `$HOME/.agents/skills/money-saver`.
@@ -41,33 +41,37 @@ OS security boundary, and a remote pushed from another machine is out of a local
 `pre-push` hook's reach — create its pull request through `probator pr`, which runs
 the same checker. No server-side protection is installed.
 
-The Agent has exactly three tools: immutable Git source context, catalogued official
-public documents, and structured verdict submission. It has no shell, write, deployment,
+The Agent has exactly three tools: immutable Git source context, official public
+documents (catalogued or self-located), and structured verdict submission. It has no shell, write, deployment,
 production-query or delegation tools. Repository hooks/instructions are not loaded
-by the OpenCode session. Source retrieval excludes credential containers/runtime data files and
+by the audit session. Source retrieval excludes credential containers/runtime data files and
 redacts recognizable credentials and local identifiers; it is not a replacement for
 a dedicated privacy audit. Do not stage private operational records as source code.
 
-`policy.md` defines the six cost domains and blocking threshold. Findings require
+`policy.md` defines the seven cost domains and blocking threshold. Findings require
 file/line, trigger/evidence, impact, resource units before/after, a minimal remedy,
 focused validation and successfully fetched official URLs. Cost estimates distinguish
 inference from measurement, resource savings from invoice savings and allowances
 from marginal charges. Unknown production volume uses formulas, not invented bills.
 The checker reads no real operational usage or billing accounts.
 
-`documents.json` is an operator-owned reference catalog. Fetch only relevant pages,
-once per review, and page through the same response. Update this installed catalog
-when adding a provider or when official URLs change. Missing material evidence means
-incomplete. Pricing is retrieved at review time rather than embedded as fixed rates.
+`documents.json` is an operator-owned source registry. Fetch only relevant
+pages, once per review, and page through the same response. When the catalog
+lacks an applicable provider page, the reviewer may fetch another page from a
+documentation host the catalog already names; an unlisted host, a query or a
+fragment is refused. A missing catalog entry on a catalogued host never
+justifies an incomplete verdict; only evidence that genuinely cannot be
+examined does. Pricing is retrieved at review time rather than embedded as
+fixed rates.
 
-Sanitized reports, draft results and the OpenCode session are retained in the
+Sanitized reports, draft results and the agent session are retained in the
 profile's private run directory; review scope scratch files are removed.
 Reports include review
 usage so the review's own cost can be assessed. No report is committed to the project.
 
 Verification: run `cargo test`. Unit and integration tests use synthetic Git
 repositories, MCP protocol round-trips against the stateful serve process and
-a deterministic ACP agent double driven through the declared registry
+a deterministic `va serve` agent double driven through the declared registry
 document. Probator tests exercise actual hooks, refusal, `--no-verify`,
 partial index scope and completion waits. A real model review is a separate
 live acceptance operation, not an implementation test.
@@ -76,7 +80,7 @@ live acceptance operation, not an implementation test.
 
 `probator full-audit --contract <contract.json> --manifest <manifest.json>
 --request <original-request.json> --output <new-private-directory>` invokes the
-same OpenCode reviewer on selected
+same reviewer on selected
 current source, including nonignored unstaged/untracked changes. The manifest maps
 project labels to local source roots under `projects`. Optional `reuse` maps a
 second selected project to its primary copy; byte-identical original source files share
@@ -96,7 +100,7 @@ bills. A full-audit report does not approve a later staged commit.
 Full audits write compact tool progress and final status without a task deadline.
 They do not deploy, mutate services, query production or automatically repeat a
 failed audit. Resume a failed full audit with `probator full-audit --resume <run-directory>`:
-the same snapshot, OpenCode session, read evidence, official document
+the same snapshot, agent session, read evidence, official document
 cache and latest draft are retained. A successful report cannot be re-audited by
 this command. Normal publication review continues to use only the operation's
 resolved snapshot. Report schemas specify coverage/status fields, project keys
@@ -110,11 +114,11 @@ repeated guessing.
 | Snapshot resolution | Review exactly what the operation publishes: the whole tree at each pushed ref's head (deduplicated), a pull request's head, a release's commit; an already-published tip is not re-reviewed. |
 | Verdict reuse | A prior passing receipt for the same snapshot head, the same declared provider/model and the same judged items stands; anything else is paid for again. |
 | Source access | Only immutable Git objects; reject credential/runtime containers and traversal; never follow worktree symlinks. |
-| Official catalog | Only operator-supplied public URLs; refuse cross-authority redirects; reuse one fetch per page. |
+| Official sources | Operator-supplied catalog hosts; query/fragment-free https pages on those hosts resolving only to public address space; refuse cross-authority redirects; reuse one fetch per page. |
 | Findings contract | Require concrete location, impact, before/after units, remedy, validation and retrieved sources. |
-| Coverage | A pass requires every snapshot path's diff and all six cost domains accounted for, with no blocker or unknown applicable coverage. |
+| Coverage | A pass requires every snapshot path's diff and all seven cost domains accounted for, with no blocker or unknown applicable coverage. |
 | Single submission | Accept one verdict per run; no cached prior approvals. |
-| OpenCode completion | Require successful engine exit and a structured verdict; provider errors/interruption refuse the publication. |
+| Agent completion | Require successful engine exit and a structured verdict; provider errors/interruption refuse the publication. |
 | Ref stability | A pushed ref that moved during review refuses the publication. |
 | Report status | A model verdict is pending until the engine and snapshot checks pass; interrupted runs remain refused. |
 | Full-audit originals and scope | Require original request read, every selected project accounted for and real inspected source locations; no unstated coverage pass. |

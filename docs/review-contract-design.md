@@ -5,7 +5,7 @@ decision and the migration shape; "Landed so far" lists what exists.
 
 ## Landed so far
 
-The `probator` binary (`src/bin/review.rs` + `src/bin/review/`):
+The `probator` binary (`src/bin/probator.rs` + `src/bin/probator/`):
 
 - `contract.rs` — the contract model and validation, the executable mirror of
   the schema. Every schema rule has exactly one named check; the two must
@@ -16,11 +16,13 @@ The `probator` binary (`src/bin/review.rs` + `src/bin/review/`):
   (inventory/list/diff/read/find) with the pagination state a verdict depends
   on.
 - `stage1.rs` — the deterministic stage: the per-checker builtins
-  (withheld-names-and-credentials, maintainer-hygiene,
-  security-static-checklist, dependency-direction) plus regex rules executed
+  (withheld-names-and-credentials, workspace-hygiene,
+  static-checklist, dependency-direction) plus regex rules executed
   as data over a declared target. The builtins own one coupled scan pass each.
-- `documents.rs` — the catalogued official-document fetcher: closed whitelist,
-  redirects pinned to the same authority, HTML text extraction, paged replies,
+- `documents.rs` — the operator-curated official-document fetcher: catalog
+  keys, listed URLs, and unlisted pages on a catalog host; query/fragment-free
+  self-located URLs resolved only to public addresses; redirects pinned to the
+  same authority; HTML text extraction, paged replies,
   a persisted per-run cache.
 - `fullservice.rs` — the snapshot-backed review object (inventory /
   original_request / list / read / find), the snapshot builder with
@@ -38,8 +40,13 @@ The `probator` binary (`src/bin/review.rs` + `src/bin/review/`):
   admitted agents' stores, plus the desktop `archivedSessions` list the
   sidebar filter consults; skips runs still marked live.
 - `engine.rs` + `ranges.rs` — the gate: snapshot resolution for push/pr/release,
-  the deterministic stage first, receipt reuse and resume keys, the retention
-  window, the A4AA runner process, the full-audit lifecycle. Receipts carry
+  the deterministic stage first, the per-checker coverage ledger
+  (`<profiles>/cursors/<checker>.json`, sealed, scoped to the reviewer,
+  checker-named binding and runtime tuple that produced the verdict, and
+  advancing only on a complete pass or block), incremental `base..head`
+  reviews, carried blocking findings cleared only when a hunk re-opens their
+  own line, receipt reuse and resume keys, the retention window, the A4AA
+  runner process, the full-audit lifecycle. Receipts carry
   `engine: probator <version>`; Python-era receipts are never reused.
 - `install.rs` — `install` / `update` / `pull`: payload copy and pinning,
   registry-entry upsert, bundle verification. A checker installs as a

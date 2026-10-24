@@ -11,8 +11,8 @@ pull request, a merge or a release is about to publish, in two stages:
    objects of the outgoing range. No repository code is executed and no
    repository script is parsed: a change never certifies itself. A regression
    refuses immediately and costs no tokens.
-2. **Semantic, isolated OpenCode review** — only if stage one finds no regression: a
-   fresh, durable OpenCode session over the same immutable range, on the
+2. **Semantic, isolated agent review** — only if stage one finds no regression: a
+   fresh, durable audit session over the same immutable range, on the
    provider/model the synced `profile.json` declares, judging
    dependency_supply_chain / ci_workflow_authority /
    secret_handling / transport_security / authz_defaults / container_runtime /

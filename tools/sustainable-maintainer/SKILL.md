@@ -20,8 +20,8 @@ A refusal is a verdict, not an obstacle:
   markers left in text, merge-tool artifacts (`*.orig`, `*.rej`,
   `*.LOCAL.*`), editor or OS junk (`.DS_Store`, `._*`, swap files) committed
   to the tree. The scan runs locally and never costs a token.
-- **semantic refusal** (stage two): the six domains judged by an isolated OpenCode
-  conversation with a fresh context each run — structure, contracts, craft,
+- **semantic refusal** (stage two): the six domains judged by an isolated agent
+  session with a fresh context each run — structure, contracts, craft,
   duplication, tests, evolution.
 
 Repair the change, then publish again. A blocking finding is a material norm

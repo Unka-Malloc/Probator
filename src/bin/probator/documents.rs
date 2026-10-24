@@ -1,14 +1,18 @@
-//! The catalogued official-document fetcher: Money Saver's fourth tool.
+//! The official-document fetcher: Money Saver's fourth tool.
 //!
-//! The catalog is a closed whitelist - a fetch goes to a listed URL or
-//! nowhere. Redirects are followed only inside the same authority: https,
-//! same host, no credentials, no query - so a documentation page cannot
-//! bounce the gate into an arbitrary origin. Ported from Money Saver's
+//! The catalog is operator-owned: a fetch names a catalog key, a listed URL,
+//! or another page on a host the catalog already names - an absent catalog
+//! entry never means an absent source. Redirects are followed only inside the
+//! same authority: https, same host, no credentials, no query - so a
+//! documentation page cannot bounce the gate into an arbitrary origin.
+//! Self-located URLs carry no query or fragment, stay on a catalog host, and
+//! connect only to globally routable addresses pinned by the resolver, keeping
+//! the tool off local and private infrastructure. Ported from Money Saver's
 //! `document` verb; the page extraction is byte-parity with its PageText,
 //! pinned by the goldens.
 
 use serde_json::{Map, Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 /// Characters per document page - the same pagination contract as the
@@ -154,6 +158,7 @@ struct Split<'a> {
     authority: &'a str,
     path: &'a str,
     query: Option<&'a str>,
+    fragment: Option<&'a str>,
 }
 
 /// The pieces of an absolute URL a redirect policy judges. Not a general
@@ -167,11 +172,15 @@ fn split(url: &str) -> Option<Split<'_>> {
     let query = query_and_fragment
         .strip_prefix('?')
         .map(|q| q.split('#').next().unwrap_or(""));
+    let fragment = query_and_fragment
+        .split_once('#')
+        .map(|(_, fragment)| fragment);
     Some(Split {
         scheme,
         authority,
         path: if path.is_empty() { "/" } else { path },
         query,
+        fragment,
     })
 }
 
@@ -211,22 +220,224 @@ fn redirect_allowed(from: &str, target: &str) -> bool {
     let (Some(from), Some(target)) = (split(from), split(target)) else {
         return false;
     };
-    target.scheme == "https"
+    // Unit tests drive a loopback HTTP fixture; a release build only ever
+    // follows an https redirect.
+    (target.scheme == "https" || (cfg!(test) && from.scheme == "http" && target.scheme == "http"))
         && target.authority == from.authority
         && !target.authority.contains('@')
         && target.query.is_none()
 }
 
-/// Fetch one document, following policy-checked redirects. Returns the body
-/// and whether it was HTML.
-fn fetch(url: &str) -> Result<String, String> {
-    let agent = ureq::Agent::config_builder()
+/// Whether an operator catalog entry may be fetched at all. Catalog URLs are
+/// fetched as official evidence, so a release build accepts only https and
+/// refuses URL credentials (which a proxy or a plaintext request could
+/// expose). The loopback HTTP listener used by the unit tests is the one
+/// deliberate exception.
+fn catalog_source(url: &str) -> bool {
+    let Some(parts) = split(url) else {
+        return false;
+    };
+    if parts.authority.is_empty()
+        || parts.authority.contains('@')
+        || url.chars().any(|c| c.is_control() || c.is_whitespace())
+    {
+        return false;
+    }
+    parts.scheme == "https"
+        || (cfg!(test) && parts.scheme == "http" && loopback_authority(parts.authority))
+}
+
+fn loopback_authority(authority: &str) -> bool {
+    if let Some(rest) = authority.strip_prefix('[') {
+        return rest.split_once(']').is_some_and(|(host, _)| host == "::1");
+    }
+    let host = authority
+        .rsplit_once(':')
+        .map_or(authority, |(host, _)| host);
+    host == "127.0.0.1" || host == "localhost"
+}
+
+/// A self-located URL's lexical requirements: https, no credentials, no
+/// data-bearing query or fragment, a default TLS port, a real hostname
+/// (never an IP literal), no local or single-label names, and a host the
+/// operator's catalog already names. The address-space check happens at
+/// fetch time through the pinned resolver in `fetch_direct`.
+fn direct_url(name: &str, catalog_hosts: &HashSet<String>) -> Option<String> {
+    let parts = split(name)?;
+    if parts.scheme != "https"
+        || parts.authority.is_empty()
+        || parts.authority.contains('@')
+        || parts.authority.starts_with('[')
+        || parts.authority.contains(':')
+        || parts.query.is_some()
+        || parts.fragment.is_some()
+        || name.chars().any(|c| c.is_control() || c.is_whitespace())
+    {
+        return None;
+    }
+    let host = parts.authority;
+    if host.is_empty() || !host.contains('.') || host.parse::<std::net::IpAddr>().is_ok() {
+        return None;
+    }
+    let lowered = host.to_ascii_lowercase();
+    const LOCAL_SUFFIXES: [&str; 5] = [".local", ".lan", ".internal", ".corp", ".localhost"];
+    if lowered == "localhost"
+        || LOCAL_SUFFIXES
+            .iter()
+            .any(|suffix| lowered.ends_with(suffix))
+        || !catalog_hosts.contains(&lowered)
+    {
+        return None;
+    }
+    Some(name.to_string())
+}
+
+/// The deterministic cache key a self-located URL fetches under: stable
+/// across a resumed run and safe as a filename.
+fn direct_key(url: &str) -> String {
+    format!("web-{}", &crate::util::sha256(url)[..16])
+}
+
+/// An address the egress guard lets an official page be fetched from: the
+/// global-unicast space, minus loopback, private, link-local, shared,
+/// documentation, benchmark, reserved, transition and multicast ranges.
+fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(addr) => {
+            let o = addr.octets();
+            !(o[0] == 0
+                || o[0] == 10
+                || o[0] == 127
+                || (o[0] == 100 && (o[1] & 0xC0) == 64)
+                || (o[0] == 169 && o[1] == 254)
+                || (o[0] == 172 && (16..=31).contains(&o[1]))
+                || (o[0] == 192 && o[1] == 0 && o[2] == 0)
+                || (o[0] == 192 && o[1] == 0 && o[2] == 2)
+                || (o[0] == 192 && o[1] == 31 && o[2] == 196)
+                || (o[0] == 192 && o[1] == 52 && o[2] == 193)
+                || (o[0] == 192 && o[1] == 88 && o[2] == 99)
+                || (o[0] == 192 && o[1] == 168)
+                || (o[0] == 192 && o[1] == 175 && o[2] == 48)
+                || (o[0] == 198 && (o[1] & 0xFE) == 18)
+                || (o[0] == 198 && o[1] == 51 && o[2] == 100)
+                || (o[0] == 203 && o[1] == 0 && o[2] == 113)
+                || o[0] >= 224)
+        }
+        std::net::IpAddr::V6(addr) => {
+            if let Some(mapped) = addr.to_ipv4_mapped() {
+                return is_public_ip(std::net::IpAddr::V4(mapped));
+            }
+            let segments = addr.segments();
+            let head = segments[0];
+            // Only 2000::/3 is globally routable unicast.
+            if (head & 0xE000) != 0x2000 {
+                return false;
+            }
+            // Teredo, benchmark, ORCHID, documentation and 6to4 ranges are
+            // transition or documentation space, never a documentation host.
+            if head == 0x2001
+                && (segments[1] == 0
+                    || (segments[1] == 0x0002 && segments[2] == 0)
+                    || (segments[1] & 0xFFF0) == 0x0010
+                    || (segments[1] & 0xFFF0) == 0x0020
+                    || segments[1] == 0x0DB8)
+            {
+                return false;
+            }
+            if head == 0x2002 {
+                return false;
+            }
+            if head == 0x3FFF && (segments[1] & 0xF000) == 0 {
+                return false;
+            }
+            // 5f00::/16 is the SRv6 SID space, not a public web host.
+            head != 0x5F00
+        }
+    }
+}
+
+/// A resolver ureq hands straight to the transport: it resolves a name once,
+/// refuses the whole answer if any address is outside global unicast space,
+/// and returns the validated addresses. The transport then connects to one of
+/// these addresses — it never performs a second lookup — so a name cannot pass
+/// the check on a public address and be connected to a private one.
+#[derive(Debug)]
+struct PublicResolver;
+
+impl ureq::unversioned::resolver::Resolver for PublicResolver {
+    fn resolve(
+        &self,
+        uri: &http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let resolved = ureq::unversioned::resolver::DefaultResolver::default()
+            .resolve(uri, config, timeout)?;
+        if resolved.iter().any(|address| !is_public_ip(address.ip())) {
+            return Err(ureq::Error::HostNotFound);
+        }
+        Ok(resolved)
+    }
+}
+
+/// The ordinary catalog fetcher's agent. Redirects stay in this module so
+/// each hop is policy-checked before it is requested. A catalog host is held
+/// to the same egress policy as a self-located URL: no environment proxy and
+/// only pinned global-unicast addresses. The loopback fixture used by the
+/// unit tests is the sole exception.
+fn catalog_agent() -> ureq::Agent {
+    if cfg!(test) {
+        ureq::Agent::new_with_config(
+            ureq::Agent::config_builder()
+                .http_status_as_error(false)
+                .max_redirects(0)
+                .build(),
+        )
+    } else {
+        public_agent()
+    }
+}
+
+/// The self-located fetcher's agent: no environment-provided proxy (a proxy
+/// would resolve and reach the destination on our behalf) and the pinned
+/// public-address resolver above.
+fn public_agent() -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .max_redirects(0)
-        .build()
-        .new_agent();
-    let mut url = url.to_string();
-    for _ in 0..10 {
+        .proxy(None)
+        .build();
+    ureq::Agent::with_parts(
+        config,
+        ureq::unversioned::transport::DefaultConnector::default(),
+        PublicResolver,
+    )
+}
+
+/// Fetch one self-located official page. The catalog-host allowlist was
+/// checked in `direct_url`; the transport resolves only public addresses and
+/// honours the same redirect constraints as a catalog page.
+fn fetch_direct(url: &str) -> Result<String, String> {
+    fetch_with(url, &public_agent())
+}
+
+/// Fetch one document, following policy-checked redirects. Returns the body
+/// and whether it was HTML. A repeated URL is a redirect loop, not a fixed
+/// hop budget: a long but acyclic chain still reaches its page.
+fn fetch(url: &str) -> Result<String, String> {
+    fetch_with(url, &catalog_agent())
+}
+
+fn fetch_with(url: &str, agent: &ureq::Agent) -> Result<String, String> {
+    if !catalog_source(url) {
+        return Err(
+            "Official documentation must be fetched over https without credentials".to_string(),
+        );
+    }
+    let mut url = url.split('#').next().unwrap_or(url).to_string();
+    let mut visited = HashSet::new();
+    visited.insert(url.clone());
+    loop {
         let mut response = agent
             .get(&url)
             .header("User-Agent", "Money-Saver/1.0")
@@ -244,6 +455,10 @@ fn fetch(url: &str) -> Result<String, String> {
                 .ok_or("A redirect without a resolvable Location is not followable")?;
             if !redirect_allowed(&url, &target) {
                 return Err("Official documentation redirected outside its authority".to_string());
+            }
+            let target = target.split('#').next().unwrap_or(&target).to_string();
+            if !visited.insert(target.clone()) {
+                return Err("Official documentation redirects in a loop".to_string());
             }
             url = target;
             continue;
@@ -267,7 +482,6 @@ fn fetch(url: &str) -> Result<String, String> {
             body
         });
     }
-    Err("The official document redirects without settling".to_string())
 }
 
 pub struct Doc {
@@ -276,19 +490,59 @@ pub struct Doc {
     pub content: String,
 }
 
-/// The catalog plus this review's fetched cache. The cache doubles as the
-/// verdict's evidence trail: what was never fetched cannot be cited.
+/// The catalog, the self-located URLs accepted this review and the fetched
+/// cache. The cache doubles as the verdict's evidence trail: what was never
+/// fetched cannot be cited.
 pub struct Documents {
     catalog: Map<String, Value>,
+    /// The hosts the operator's catalog names. Self-located URLs are limited
+    /// to these hosts; the catalog stays the curated source registry even
+    /// when a page is not listed.
+    catalog_hosts: HashSet<String>,
+    /// Self-located URL keys (`web-*`) to their URL - resolve-derived or
+    /// restored from a persisted run.
+    direct: HashMap<String, String>,
     cache: HashMap<String, Doc>,
 }
 
 impl Documents {
-    pub fn new(catalog: Map<String, Value>) -> Documents {
-        Documents {
-            catalog,
-            cache: HashMap::new(),
+    /// Load the operator's catalog. Every entry is validated before anything
+    /// can be fetched: an http or credential-bearing source would let a
+    /// network intermediary dress its own page up as official evidence.
+    pub fn new(catalog: Map<String, Value>) -> Result<Documents, String> {
+        for (key, value) in &catalog {
+            let Some(url) = value.as_str() else {
+                return Err(format!(
+                    "documents.json: catalog entry '{key}' is not a URL string"
+                ));
+            };
+            if !catalog_source(url) {
+                return Err(format!(
+                    "documents.json: catalog entry '{key}' is not an https URL without credentials"
+                ));
+            }
         }
+        let catalog_hosts = catalog
+            .values()
+            .filter_map(Value::as_str)
+            .filter_map(split)
+            .filter(|parts| parts.scheme == "https")
+            .map(|parts| {
+                parts
+                    .authority
+                    .split(':')
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_lowercase()
+            })
+            .filter(|host| !host.is_empty())
+            .collect();
+        Ok(Documents {
+            catalog,
+            catalog_hosts,
+            direct: HashMap::new(),
+            cache: HashMap::new(),
+        })
     }
 
     /// The URLs of every fetched document - the set submit validation cites.
@@ -296,32 +550,37 @@ impl Documents {
         self.cache.values().map(|doc| doc.url.clone()).collect()
     }
 
-    /// Resolve a catalog key or listed URL to its key.
-    pub fn resolve(&self, name: &str) -> Result<String, String> {
+    /// Resolve a catalog key, a listed URL or a self-located official https
+    /// URL to the key the fetch and the page cache share.
+    pub fn resolve(&mut self, name: &str) -> Result<String, String> {
         if name.is_empty() {
             return Err("operation \"document\" requires a \"name\" argument".to_string());
         }
-        if self.catalog.contains_key(name) {
+        if self.catalog.contains_key(name) || self.direct.contains_key(name) {
             return Ok(name.to_string());
         }
-        self.catalog
+        if let Some(key) = self
+            .catalog
             .iter()
             .find(|(_, url)| url.as_str() == Some(name))
             .map(|(key, _)| key.clone())
-            .ok_or_else(|| {
-                format!(
-                    "Choose an exact catalog key or listed URL. Keys: {}",
-                    self.catalog.keys().cloned().collect::<Vec<_>>().join(", ")
-                )
-            })
+        {
+            return Ok(key);
+        }
+        if let Some(url) = direct_url(name, &self.catalog_hosts) {
+            let key = direct_key(&url);
+            self.direct.insert(key.clone(), url);
+            return Ok(key);
+        }
+        Err(format!(
+            "Choose an exact catalog key, a listed URL, or an https URL on a catalog host, \
+             with no query or fragment. Keys: {}",
+            self.catalog.keys().cloned().collect::<Vec<_>>().join(", ")
+        ))
     }
 
     pub fn is_cached(&self, key: &str) -> bool {
         self.cache.contains_key(key)
-    }
-
-    pub fn in_catalog(&self, key: &str) -> bool {
-        self.catalog.contains_key(key)
     }
 
     /// Iterate the fetched documents (for the receipt's source list).
@@ -334,20 +593,43 @@ impl Documents {
         self.cache.get(key)
     }
 
-    /// A persisted document rejoins the cache - a resumed run does not refetch.
+    /// A persisted document rejoins the cache - a resumed run does not
+    /// refetch. A self-located `web-*` key rejoins the direct map so the same
+    /// URL resolves without another validation pass.
     pub fn restore(&mut self, key: String, doc: Doc) {
+        if !self.catalog.contains_key(&key)
+            && direct_url(&doc.url, &self.catalog_hosts).is_some_and(|url| direct_key(&url) == key)
+        {
+            self.direct.insert(key.clone(), doc.url.clone());
+        }
         self.cache.insert(key, doc);
     }
 
-    /// One catalog page: fetch on first use, then character-paged.
+    /// A persisted document may rejoin when its key is in the catalog or its
+    /// stored URL re-derives the same self-located key.
+    pub fn restorable(&self, key: &str, url: &str) -> bool {
+        self.catalog.contains_key(key)
+            || direct_url(url, &self.catalog_hosts).is_some_and(|url| direct_key(&url) == key)
+    }
+
+    /// One document page: fetch on first use, then character-paged. Catalog
+    /// keys fetch their listed URL; self-located keys fetch through the
+    /// public-egress guard.
     pub fn get(&mut self, name: &str, offset: i64) -> Result<Value, String> {
         let key = self.resolve(name)?;
         if !self.cache.contains_key(&key) {
-            let url = self.catalog[&key]
-                .as_str()
+            let url = self
+                .catalog
+                .get(&key)
+                .and_then(Value::as_str)
+                .or_else(|| self.direct.get(&key).map(String::as_str))
                 .ok_or("The catalog maps keys to URLs")?
                 .to_string();
-            let content = fetch(&url)?;
+            let content = if self.direct.contains_key(&key) {
+                fetch_direct(&url)?
+            } else {
+                fetch(&url)?
+            };
             self.cache.insert(
                 key.clone(),
                 Doc {
@@ -374,8 +656,9 @@ impl Documents {
 
 #[cfg(test)]
 mod tests {
-    use super::{Documents, page_text, redirect_allowed, resolve};
+    use super::{Documents, direct_url, is_public_ip, page_text, redirect_allowed, resolve};
     use serde_json::{Map, Value, json};
+    use std::collections::HashSet;
     use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -521,7 +804,7 @@ mod tests {
         let server = serve(vec![("/doc", markdown)]);
         let mut catalog = Map::new();
         catalog.insert("pricing".into(), json!(format!("{}/doc", server.url)));
-        let mut docs = Documents::new(catalog);
+        let mut docs = Documents::new(catalog).unwrap();
         let first = docs.get("pricing", 0).unwrap();
         assert_eq!(first["url"], json!(format!("{}/doc", server.url)));
         assert_eq!(first["total_characters"], 30);
@@ -545,11 +828,11 @@ mod tests {
         for key in ["loop", "plain", "gone"] {
             catalog.insert(key.into(), json!(format!("{}/{key}", server.url)));
         }
-        let mut docs = Documents::new(catalog);
+        let mut docs = Documents::new(catalog).unwrap();
         assert!(
             docs.get("loop", 0)
                 .unwrap_err()
-                .contains("outside its authority")
+                .contains("redirects in a loop")
         );
         assert!(
             docs.get("plain", 0)
@@ -557,5 +840,173 @@ mod tests {
                 .contains("outside its authority")
         );
         assert!(docs.get("gone", 0).unwrap_err().contains("HTTP 404"));
+    }
+
+    fn catalog_for(url: &str) -> Map<String, Value> {
+        let mut catalog = Map::new();
+        catalog.insert("seed".into(), json!(url));
+        catalog
+    }
+
+    #[test]
+    fn self_located_urls_resolve_to_web_keys() {
+        let mut docs = Documents::new(catalog_for("https://docs.example.com/seed")).unwrap();
+        let url = "https://docs.example.com/pricing";
+        let key = docs.resolve(url).unwrap();
+        assert!(key.starts_with("web-"), "{key}");
+        // The same URL resolves to the same cached key - one fetch per page.
+        assert_eq!(docs.resolve(url).unwrap(), key);
+        assert_eq!(docs.resolve(&key).unwrap(), key);
+        // A persisted self-located document rejoins under its derived key.
+        let mut restored = Documents::new(catalog_for("https://docs.example.com/seed")).unwrap();
+        assert!(restored.restorable(&key, url));
+        assert!(!restored.restorable(&key, "https://other.example.com/"));
+        assert!(!restored.restorable("web-anything", "not a url"));
+        restored.restore(
+            key.clone(),
+            super::Doc {
+                url: url.to_string(),
+                accessed: "2026-01-01".to_string(),
+                content: "cached".to_string(),
+            },
+        );
+        assert_eq!(restored.resolve(url).unwrap(), key);
+    }
+
+    #[test]
+    fn self_located_url_lexical_guards() {
+        let hosts: HashSet<String> = ["docs.example.com".to_string()].into_iter().collect();
+        for url in [
+            "http://docs.example.com/",           // not https
+            "https://user@docs.example.com/",     // credentials
+            "https://10.0.0.1/private",           // IP literal
+            "https://[fd00::1]/",                 // IPv6 literal
+            "https://localhost/",                 // local name
+            "https://printer.internal/docs",      // local suffix
+            "https://singlelabel/docs",           // no public shape
+            "https://docs.example.com/?q=x",      // data-bearing query
+            "https://docs.example.com/#part",     // fragment
+            "https://docs.example.com:8443/x",    // non-default port
+            "https://docs.github.com/en/actions", // host not in the catalog
+            "not a url",
+        ] {
+            assert_eq!(direct_url(url, &hosts), None, "{url}");
+        }
+        assert_eq!(
+            direct_url("https://docs.example.com/en/actions", &hosts).as_deref(),
+            Some("https://docs.example.com/en/actions")
+        );
+        // The operator's catalog is the source registry: a host the catalog
+        // names is admissible, a host it does not name never is.
+        assert_eq!(
+            direct_url("https://docs.github.com/en/actions", &hosts),
+            None,
+            "an absent catalog host is not an implicit approval"
+        );
+        let mut catalog = Map::new();
+        catalog.insert(
+            "billing".into(),
+            json!("https://docs.github.com/en/billing"),
+        );
+        let mut docs = Documents::new(catalog).unwrap();
+        assert!(docs.resolve("https://docs.github.com/en/actions").is_ok());
+        assert!(
+            docs.resolve("https://unlisted.example.com/actions")
+                .unwrap_err()
+                .contains("catalog host")
+        );
+    }
+
+    #[test]
+    fn catalog_sources_must_be_https_without_credentials() {
+        for url in [
+            "http://docs.example.com/page",
+            "https://user:secret@docs.example.com/page",
+            "ftp://docs.example.com/page",
+            "not a url",
+        ] {
+            let mut catalog = Map::new();
+            catalog.insert("seed".into(), json!(url));
+            let error = match Documents::new(catalog) {
+                Ok(_) => panic!("{url} must be refused before anything is fetched"),
+                Err(error) => error,
+            };
+            assert!(error.contains("seed"), "{url}: {error}");
+        }
+        // The unit-test loopback listener is the one deliberate http
+        // exception; a public http source is never admitted.
+        let mut local = Map::new();
+        local.insert("fixture".into(), json!("http://127.0.0.1:1/page"));
+        assert!(Documents::new(local).is_ok());
+    }
+
+    #[test]
+    fn public_address_policy_covers_special_use_ranges() {
+        for address in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "93.184.216.34",
+            "2606:4700:4700::1111",
+            "2001:4860:4860::8888",
+        ] {
+            assert!(is_public_ip(address.parse().unwrap()), "{address}");
+        }
+        for address in [
+            "0.0.0.0",
+            "10.0.0.1",
+            "100.64.0.1",
+            "127.0.0.1",
+            "169.254.1.1",
+            "172.16.0.1",
+            "192.0.0.1",
+            "192.0.2.1",
+            "192.88.99.1",
+            "192.168.1.1",
+            "198.18.0.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "224.0.0.1",
+            "255.255.255.255",
+            "::",
+            "::1",
+            "::ffff:127.0.0.1",
+            "64:ff9b::7f00:1",
+            "100::1",
+            "2001::1",
+            "2001:2::1",
+            "2001:10::1",
+            "2001:20::1",
+            "2001:db8::1",
+            "2002::1",
+            "3fff::1",
+            "5f00::1",
+            "fc00::1",
+            "fe80::1",
+            "ff02::1",
+        ] {
+            assert!(!is_public_ip(address.parse().unwrap()), "{address}");
+        }
+    }
+
+    #[test]
+    fn a_long_acyclic_redirect_chain_settles() {
+        // Thirteen hops is deliberately longer than the old ten-request
+        // budget; it must reach the page rather than be truncated.
+        let mut routes: Vec<(&'static str, &'static str)> = (0..13)
+            .map(|index| {
+                let path: &'static str = Box::leak(format!("/hop{index}").into_boxed_str());
+                let body: &'static str =
+                    Box::leak(format!("301\n/hop{}", index + 1).into_boxed_str());
+                (path, body)
+            })
+            .collect();
+        routes.push(("/hop13", "text/plain\narrived"));
+        let server = serve(routes);
+        let mut catalog = Map::new();
+        catalog.insert("chain".into(), json!(format!("{}/hop0", server.url)));
+        let mut docs = Documents::new(catalog).unwrap();
+        let page = docs.get("chain", 0).unwrap();
+        assert_eq!(page["content"], "arrived");
+        assert_eq!(server.hits.load(Ordering::Relaxed), 14);
     }
 }

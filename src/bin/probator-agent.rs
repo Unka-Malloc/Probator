@@ -24,6 +24,9 @@ use a4aa::{
 };
 use serde_json::{Map, Value, json};
 
+#[path = "../checker_binding.rs"]
+mod checker_binding;
+
 /// Everything the run needs, derived from the two paths the gate hands over:
 /// the installed contract directory and this run's working directory.
 struct Request {
@@ -227,20 +230,52 @@ fn va_binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("va"))
 }
 
-fn binding_profile_ids(binding: &Value) -> (Option<String>, Vec<String>) {
-    let primary = binding["profile"].as_str().map(str::to_string);
-    let fallbacks = binding["fallbacks"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| {
-            entry
-                .as_str()
-                .map(str::to_string)
-                .or_else(|| entry["profile"].as_str().map(str::to_string))
-        })
-        .collect();
-    (primary, fallbacks)
+/// The checker-named binding from the user's registry, when the operator has
+/// adopted one in Agents. A binding that exists but carries no usable profile
+/// is a configuration error: it must not silently fall back to the packaged
+/// document, because that would run an Agent the operator did not choose.
+fn user_binding(checker: &str) -> Option<(PathBuf, Value)> {
+    let (home, document) = crate::checker_binding::load_registry()?;
+    let binding = crate::checker_binding::checker_binding(&document, checker)?;
+    if binding.is_null() {
+        return None;
+    }
+    Some((home, document))
+}
+
+/// A checker-named binding may choose the harness, model and fallback chain,
+/// but it may not add a capability the gate did not project. A profile is
+/// admissible only when it is read-only and carries no extra environment,
+/// working directory, mechanisms, MCP servers, skills or agent mode. The open
+/// patch below forces the same fields; this check also refuses a fallback
+/// that would violate them before `va` spends a turn on it.
+fn restricted_profile(profile: &Value) -> bool {
+    if !profile.is_object() {
+        return false;
+    }
+    let read_only = match profile.get("permission") {
+        None | Some(Value::Null) => true,
+        Some(Value::String(permission)) => permission == "read-only",
+        Some(_) => false,
+    };
+    let empty_map = |key: &str| match profile.get(key) {
+        None | Some(Value::Null) => true,
+        Some(Value::Object(map)) => map.is_empty(),
+        Some(_) => false,
+    };
+    let absent = |key: &str| profile.get(key).is_none_or(Value::is_null);
+    let empty_list = |key: &str| match profile.get(key) {
+        None | Some(Value::Null) => true,
+        Some(Value::Array(list)) => list.is_empty(),
+        Some(_) => false,
+    };
+    read_only
+        && empty_map("env")
+        && absent("cwd")
+        && absent("mechanisms")
+        && absent("mode")
+        && empty_list("mcpServers")
+        && empty_list("skillReferences")
 }
 
 fn overlay_primary(document: &mut Value, role: &awp::Profile) -> Result<(), a4aa::AdapterError> {
@@ -347,6 +382,250 @@ fn lane_admitted(document: &Value, agent: &str) -> bool {
         )
         .flatten()
         .any(|lane| matches!(lane, "acp" | "serve" | "rpc"))
+}
+
+/// Whether every candidate a binding can serve runs on a lane that advertises
+/// a per-session permission selector. RPC and ACP lanes reject a preset
+/// outright (`agent_permission_unsupported`), so forcing one there would make
+/// a healthy audit fail at `session/open`. The role itself still declares
+/// read-only, and the host's permission handler cancels every non-audit
+/// prompt; only lanes that can enforce the selector receive it.
+fn permission_selector_supported(document: &Value, binding: &str) -> bool {
+    let entry = &document["bindings"][binding];
+    let mut profiles: Vec<&str> = Vec::new();
+    if let Some(primary) = entry["profile"].as_str() {
+        profiles.push(primary);
+    }
+    profiles.extend(
+        entry["fallbacks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str),
+    );
+    !profiles.is_empty()
+        && profiles.iter().all(|profile| {
+            let agent = document["profiles"][*profile]["agent"]
+                .as_str()
+                .unwrap_or("");
+            document["agents"][agent]["lane"].as_str() == Some("serve")
+        })
+}
+
+/// The fixed directories a Pi installation may live in. These are the roots
+/// the gate trusts for both the executable and an operator binding's path
+/// candidates; the ambient PATH is never one of them.
+fn installation_roots() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Some(home) = crate::checker_binding::user_home() {
+        roots.push(home.join(".pi/agent/bin"));
+        roots.push(home.join(".local/bin"));
+    }
+    roots.extend([
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+        PathBuf::from("/usr/bin"),
+    ]);
+    roots
+}
+
+fn under_root(path: &Path, roots: &[PathBuf]) -> bool {
+    path.parent()
+        .is_some_and(|parent| roots.iter().any(|root| root == parent))
+}
+
+/// The gate-owned Pi executable. `PROBATOR_PI_BIN` pins it explicitly; the
+/// default search covers the known Pi installation locations and never the
+/// ambient PATH, so a shadow `pi` cannot become the audit runner. The pinned
+/// file must itself be named `pi`: the child resolves the bare name through
+/// the PATH prefix below, so a differently named pin would leave that
+/// resolution pointing at whatever `pi` happens to share its directory.
+fn trusted_pi() -> Option<PathBuf> {
+    let roots = installation_roots();
+    if let Some(explicit) = std::env::var_os("PROBATOR_PI_BIN") {
+        let path = Path::new(&explicit);
+        // A relative pin would resolve against the run directory, which is
+        // repository-controlled; the pin must be an absolute installation.
+        if !path.is_absolute() || !is_pi_name(path) {
+            return None;
+        }
+        let canonical = executable_file(path)?;
+        // The pin may name a custom installation directory, but its symlink
+        // target must stay in that same directory rather than escaping to an
+        // arbitrary executable — and it must still be the `pi` the child's
+        // PATH lookup will find.
+        if canonical.parent() != path.parent() || !is_pi_name(&canonical) {
+            return None;
+        }
+        return Some(canonical);
+    }
+    roots.iter().find_map(|root| {
+        let canonical = executable_file(&root.join("pi"))?;
+        (under_root(&canonical, &roots) && is_pi_name(&canonical)).then_some(canonical)
+    })
+}
+
+fn is_pi_name(path: &Path) -> bool {
+    path.file_name().and_then(|name| name.to_str()) == Some("pi")
+}
+
+/// Canonicalize a regular, executable file. A directory, a broken symlink or
+/// a non-executable placeholder is not a usable audit runner.
+fn executable_file(path: &Path) -> Option<PathBuf> {
+    let canonical = std::fs::canonicalize(path).ok()?;
+    let metadata = std::fs::metadata(&canonical).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return None;
+        }
+    }
+    Some(canonical)
+}
+
+/// The directories an operator binding may name as a Pi installation. The
+/// pinned executable's own directory is included so a deployment that pins a
+/// custom install root still works; `/tmp` and other arbitrary paths are not.
+fn trusted_roots(trusted: &Path) -> Vec<PathBuf> {
+    let mut roots = installation_roots();
+    if let Some(parent) = trusted.parent()
+        && !roots.iter().any(|root| root == parent)
+    {
+        roots.push(parent.to_path_buf());
+    }
+    roots
+}
+
+/// One declared program candidate. The bare `pi` name is resolved by the
+/// gate-owned PATH prefix below. A path form must either canonicalize to the
+/// trusted executable or be absent inside one of its installation roots; an
+/// arbitrary existing path such as `/tmp/pi` is refused even when its basename
+/// is right.
+fn trusted_program_string(
+    candidate: &str,
+    trusted: &Path,
+    home: Option<&Path>,
+    roots: &[PathBuf],
+) -> bool {
+    if candidate == "pi" {
+        return is_pi_name(trusted);
+    }
+    let expanded = home
+        .map(|home| candidate.replace("{home}", home.to_string_lossy().as_ref()))
+        .unwrap_or_else(|| candidate.to_string());
+    let path = Path::new(&expanded);
+    if !path.is_absolute() {
+        return false;
+    }
+    if !is_pi_name(path) {
+        return false;
+    }
+    if std::fs::symlink_metadata(path).is_ok() {
+        return std::fs::canonicalize(path)
+            .ok()
+            .as_deref()
+            .is_some_and(|path| path == trusted);
+    }
+    // An absent candidate cannot execute. It is harmless only in a known Pi
+    // installation directory; a later substitution there stays bounded by
+    // the same trusted root.
+    roots
+        .iter()
+        .any(|root| path.parent() == Some(root.as_path()))
+}
+
+/// A checker-named agent's `command.program` may be the short `"pi"` name or
+/// an AwP `{ "resolve": [...] }` object. Every candidate must be trusted; a
+/// basename that merely looks like Pi is not enough.
+fn trusted_program(
+    program: &Value,
+    trusted: &Path,
+    home: Option<&Path>,
+    roots: &[PathBuf],
+) -> bool {
+    match program {
+        Value::String(candidate) => trusted_program_string(candidate, trusted, home, roots),
+        Value::Object(map) => {
+            if map.len() != 1 {
+                return false;
+            }
+            let Some(resolve) = map.get("resolve").and_then(Value::as_array) else {
+                return false;
+            };
+            !resolve.is_empty()
+                && resolve.iter().all(|candidate| {
+                    candidate.as_str().is_some_and(|candidate| {
+                        trusted_program_string(candidate, trusted, home, roots)
+                    })
+                })
+        }
+        _ => false,
+    }
+}
+
+/// The only harness shape a checker-named operator binding may run: the
+/// packaged `pi` RPC command with the audit tool surface and no extension,
+/// skill, prompt-template or context-file loading. Profile fields alone cannot
+/// prove the agent's native tools are read-only; a custom command could expose
+/// shell or extra tools, so it is refused before `va` starts.
+fn audit_safe_agent(spec: &Value) -> bool {
+    const SAFE_ARGS: [&str; 15] = [
+        "--mode",
+        "rpc",
+        "--approve",
+        "--tools",
+        "codemode,mcp__probator_audit__*",
+        "--no-extensions",
+        "-e",
+        "builtin:mcp",
+        "-e",
+        "builtin:codemode",
+        "-e",
+        "builtin:tool-search",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-context-files",
+    ];
+    let alternates_clear = spec["alternates"].is_null()
+        || spec["alternates"]
+            .as_array()
+            .is_some_and(|alternates| alternates.is_empty());
+    let env_clear = spec["command"]["env"].is_null()
+        || spec["command"]["env"]
+            .as_object()
+            .is_some_and(|env| env.is_empty());
+    if spec["lane"].as_str() != Some("rpc")
+        || !alternates_clear
+        || !env_clear
+        || !spec["command"]["cwd"].is_null()
+    {
+        return false;
+    }
+    let Some(trusted) = trusted_pi() else {
+        return false;
+    };
+    let home = crate::checker_binding::user_home();
+    let roots = trusted_roots(&trusted);
+    if !trusted_program(
+        &spec["command"]["program"],
+        &trusted,
+        home.as_deref(),
+        &roots,
+    ) {
+        return false;
+    }
+    let Some(args) = spec["command"]["args"].as_array() else {
+        return false;
+    };
+    args.len() == SAFE_ARGS.len()
+        && args
+            .iter()
+            .zip(SAFE_ARGS)
+            .all(|(arg, expected)| arg.as_str() == Some(expected))
 }
 
 fn serving_model(session_state: &Value, declared: &str) -> String {
@@ -528,12 +807,6 @@ fn call_error(stage: &'static str, failure: CallFailure) -> a4aa::AdapterError {
     }
 }
 
-struct Opened {
-    sidecar_id: String,
-    native_id: String,
-    served: Value,
-}
-
 /// Whether a resume refusal proves the stored session is gone: the adapter's
 /// own capability refusal, or a remote code that names the session as stale,
 /// unsupported or unknown. Any other permanent error keeps the preserved
@@ -558,6 +831,12 @@ fn is_stale_resume(error: &a4aa::AdapterError) -> bool {
         || remote.contains("stale")
 }
 
+struct Opened {
+    sidecar_id: String,
+    native_id: String,
+    served: Value,
+}
+
 async fn open_once(peer: &JsonRpcPeer, params: Value) -> Result<Value, a4aa::AdapterError> {
     peer.call("session/open", params)
         .await
@@ -570,6 +849,7 @@ fn opened_from(
     role: &awp::Profile,
     admitted: &[String],
     primary: &str,
+    enforce_provider: bool,
 ) -> Result<Opened, a4aa::AdapterError> {
     let sidecar_id = result["sessionId"].as_str().unwrap_or("").to_string();
     let native_id = result["nativeSessionId"]
@@ -588,8 +868,19 @@ fn opened_from(
         return Err(failure("audit_served_not_admitted", "audit/open"));
     }
     let profile = &document["profiles"][&served_profile];
+    // A profile that served an operator binding is still the reviewer's
+    // sandbox: it may not declare a stronger permission, extra environment
+    // or working directory, mechanisms, MCP servers or skills.
+    if !restricted_profile(profile) {
+        return Err(failure("audit_served_not_admitted", "audit/open"));
+    }
     let agent = profile["agent"].as_str().unwrap_or("");
     if !is_label(agent) || !lane_admitted(document, agent) {
+        return Err(failure("audit_served_not_admitted", "audit/open"));
+    }
+    // A checker-named binding may only serve the audit-safe harness command;
+    // the packaged installation document keeps its own fallback chain.
+    if !enforce_provider && !audit_safe_agent(&document["agents"][agent]) {
         return Err(failure("audit_served_not_admitted", "audit/open"));
     }
     let declared_model = profile["model"].as_str().unwrap_or("");
@@ -601,7 +892,17 @@ fn opened_from(
         .unwrap_or("");
     let prefix = format!("{provider}/");
     let primary_served = served_profile == primary;
-    if !is_model_label(&model) || (primary_served && !model.starts_with(&prefix)) {
+    // The packaged document is bounded by the contract's runtime provider:
+    // the primary candidate must serve a model in that provider's namespace.
+    // A checker-named binding is owned by Agents instead; its profile may
+    // legitimately leave the model to the agent's client default, so only a
+    // malformed non-empty label is refused there.
+    let model_admitted = if enforce_provider {
+        is_model_label(&model) && (!primary_served || model.starts_with(&prefix))
+    } else {
+        model.is_empty() || is_model_label(&model)
+    };
+    if !model_admitted {
         return Err(failure("audit_served_not_admitted", "audit/open"));
     }
     Ok(Opened {
@@ -621,14 +922,7 @@ async fn run(request: Request) -> a4aa::Result<Value> {
     // audit roles: executable, environment and tool surface stay gate-owned —
     // the single MCP server the role carries is the one the engine projected.
     // The agent itself is whatever the binding declared.
-    let provider = role
-        .extensions
-        .get("provider")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if !is_label(role.agent.as_str())
-        || role.permission.as_deref() != Some("read-only")
-        || !is_label(provider)
+    if role.permission.as_deref() != Some("read-only")
         || !role.env.is_empty()
         || role.cwd.is_some()
         || role.mechanisms.is_some()
@@ -638,26 +932,6 @@ async fn run(request: Request) -> a4aa::Result<Value> {
             .all(|server| server["name"] == "probator-audit")
     {
         return Err(failure("audit_role_not_admitted", "profile/resolve"));
-    }
-    // The role's model chain — primary, same-agent fallbacks and window
-    // heads — stays inside the declared provider's namespace. Probator
-    // overlays this onto the primary profile for VA; it does not step it.
-    let prefix = format!("{provider}/");
-    let chain_models = std::iter::once(role.model.as_deref().unwrap_or(""))
-        .chain(role.models.iter().map(String::as_str))
-        .chain(role.windows.iter().flat_map(|window| {
-            window
-                .model
-                .iter()
-                .chain(window.models.iter())
-                .map(String::as_str)
-        }))
-        .collect::<Vec<_>>();
-    if chain_models
-        .iter()
-        .any(|model| !is_model_label(model) || !model.starts_with(&prefix))
-    {
-        return Err(failure("audit_role_model_mismatch", "profile/resolve"));
     }
     if role
         .instructions
@@ -669,31 +943,113 @@ async fn run(request: Request) -> a4aa::Result<Value> {
             "profile/resolve",
         ));
     }
-    let raw = std::fs::read_to_string(&request.document)
-        .map_err(|_| failure("audit_document_unreadable", "registry/load"))?;
-    let mut document: Value = serde_json::from_str(&raw)
-        .map_err(|_| failure("audit_document_invalid", "registry/load"))?;
-    let (primary, fallbacks) = binding_profile_ids(&document["bindings"]["audit"]);
-    let Some(primary) = primary else {
-        return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
+    // The checker's binding is the one named after the checker in the user's
+    // Virtual-Agent registry. The installer document is the packaged fallback:
+    // it owns the run-local `audit` binding and the role overlay until the
+    // operator adopts a checker-named chain in Agents.
+    let checker = role.id.clone();
+    let configured = if is_label(&checker) {
+        user_binding(&checker)
+    } else {
+        None
     };
-    if primary != role.id {
-        return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
-    }
-    if document["profiles"][&primary]["agent"].as_str() != Some(role.agent.as_str()) {
-        return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
-    }
-    let mut admitted = vec![primary.clone()];
-    admitted.extend(fallbacks);
-    overlay_primary(&mut document, role)?;
-    let va_home = request.run_dir.join("va-home");
-    std::fs::create_dir_all(&va_home)
-        .map_err(|_| failure("audit_va_home_unwritable", "registry/load"))?;
-    std::fs::write(
-        va_home.join("registry.json"),
-        serde_json::to_string_pretty(&document).unwrap_or_default(),
-    )
-    .map_err(|_| failure("audit_va_home_unwritable", "registry/load"))?;
+    let (document, binding, admitted, primary, va_home, enforce_provider) = match configured {
+        Some((home, user)) => {
+            let (primary, fallbacks) =
+                crate::checker_binding::binding_profiles(&user["bindings"][&checker]);
+            let Some(primary) = primary else {
+                return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
+            };
+            if !user["profiles"][&primary].is_object() {
+                return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
+            }
+            let mut admitted = vec![primary.clone()];
+            admitted.extend(fallbacks);
+            // The user's binding owns harness, model and fallback chain, but
+            // every candidate it can serve must still be the gate's
+            // read-only, single-tool shape. Refuse the binding before `va`
+            // starts if any candidate declares a stronger capability or a
+            // command whose native tools are not the audit allowlist.
+            if admitted.iter().any(|id| {
+                let profile = &user["profiles"][id];
+                if !profile.is_object() || !restricted_profile(profile) {
+                    return true;
+                }
+                let agent = profile["agent"].as_str().unwrap_or("");
+                !audit_safe_agent(&user["agents"][agent])
+            }) {
+                return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
+            }
+            // The user's binding owns harness, model and fallback chain; the
+            // contract's runtime block only supplied the role text and the
+            // audit tool surface. VA resolves and admits the candidates.
+            (user, checker, admitted, primary, home, false)
+        }
+        None => {
+            // The packaged document is bounded by the contract's declared
+            // runtime: its agent and every model in the chain stay inside the
+            // provider namespace Probator was configured for.
+            let provider = role
+                .extensions
+                .get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if !is_label(role.agent.as_str()) || !is_label(provider) {
+                return Err(failure("audit_role_not_admitted", "profile/resolve"));
+            }
+            let prefix = format!("{provider}/");
+            let chain_models = std::iter::once(role.model.as_deref().unwrap_or(""))
+                .chain(role.models.iter().map(String::as_str))
+                .chain(role.windows.iter().flat_map(|window| {
+                    window
+                        .model
+                        .iter()
+                        .chain(window.models.iter())
+                        .map(String::as_str)
+                }))
+                .collect::<Vec<_>>();
+            if chain_models
+                .iter()
+                .any(|model| !is_model_label(model) || !model.starts_with(&prefix))
+            {
+                return Err(failure("audit_role_model_mismatch", "profile/resolve"));
+            }
+            let raw = std::fs::read_to_string(&request.document)
+                .map_err(|_| failure("audit_document_unreadable", "registry/load"))?;
+            let mut document: Value = serde_json::from_str(&raw)
+                .map_err(|_| failure("audit_document_invalid", "registry/load"))?;
+            let (primary, fallbacks) =
+                crate::checker_binding::binding_profiles(&document["bindings"]["audit"]);
+            let Some(primary) = primary else {
+                return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
+            };
+            if primary != role.id {
+                return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
+            }
+            if document["profiles"][&primary]["agent"].as_str() != Some(role.agent.as_str()) {
+                return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
+            }
+            let mut admitted = vec![primary.clone()];
+            admitted.extend(fallbacks);
+            overlay_primary(&mut document, role)?;
+            let va_home = request.run_dir.join("va-home");
+            std::fs::create_dir_all(&va_home)
+                .map_err(|_| failure("audit_va_home_unwritable", "registry/load"))?;
+            std::fs::write(
+                va_home.join("registry.json"),
+                serde_json::to_string_pretty(&document).unwrap_or_default(),
+            )
+            .map_err(|_| failure("audit_va_home_unwritable", "registry/load"))?;
+            (
+                document,
+                "audit".to_string(),
+                admitted,
+                primary,
+                va_home,
+                true,
+            )
+        }
+    };
     // For RPC agents like pi that discover project-local MCP servers from
     // .pi/mcp.json, materialize the tool server definition into the run
     // directory. The session/open patch carries the same servers for VA. An
@@ -707,13 +1063,35 @@ async fn run(request: Request) -> a4aa::Result<Value> {
     let delegate = Arc::new(HostDelegate {
         usage: captured_usage.clone(),
     });
-    let mut child = tokio::process::Command::new(va_binary())
-        .arg("serve")
+    // A checker-named binding may declare the bare `pi` name. `va` resolves
+    // that name through PATH, so put the gate-validated installation first:
+    // a shadow `pi` earlier in the operator's PATH must not run the audit.
+    let pinned_pi = (!enforce_provider).then(trusted_pi).flatten();
+    let mut va = tokio::process::Command::new(va_binary());
+    va.arg("serve")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
         .env("VIRTUAL_AGENT_HOME", &va_home)
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    if let Some(pi) = &pinned_pi {
+        let dir = pi
+            .parent()
+            .ok_or_else(|| failure("audit_agent_untrusted", "run/start"))?;
+        // The child resolves the bare name through this prefix. Refuse unless
+        // that lookup lands on the exact canonical file validated above; a
+        // directory-wide prefix alone is not a binding.
+        if executable_file(&dir.join("pi")).as_deref() != Some(pi.as_path()) {
+            return Err(failure("audit_agent_untrusted", "run/start"));
+        }
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let pinned = std::env::join_paths(
+            std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&path)),
+        )
+        .map_err(|_| failure("audit_agent_untrusted", "run/start"))?;
+        va.env("PATH", pinned);
+    }
+    let mut child = va
         .spawn()
         .map_err(|_| failure("audit_va_unavailable", "run/start"))?;
     let stdout = child
@@ -731,14 +1109,28 @@ async fn run(request: Request) -> a4aa::Result<Value> {
         a4aa::observe::none(),
         a4aa::framing::DEFAULT_MAX_MESSAGE_BYTES,
     );
-    let patch = json!({
+    // The patch carries the gate's whole skill: one audit tool server, a
+    // read-only posture and no operator-supplied environment, working
+    // directory, mechanisms, skills or mode. `va` layers the binding's
+    // harness/model choice underneath these fields.
+    let mut patch = json!({
         "name": role.name,
         "instructions": role.instructions,
         "mcpServers": role.mcp_servers,
+        "env": {},
+        "mechanisms": null,
+        "skillReferences": [],
+        "mode": null,
     });
+    // Only a lane that advertises the selector may receive it; an RPC or ACP
+    // candidate would otherwise refuse the whole open before the reviewer
+    // ever starts.
+    if permission_selector_supported(&document, &binding) {
+        patch["permission"] = json!("read-only");
+    }
     let open_params = |resume: Option<&str>| {
         let mut params = json!({
-            "binding": "audit",
+            "binding": binding,
             "cwd": request.run_dir,
             "patch": patch,
         });
@@ -757,19 +1149,28 @@ async fn run(request: Request) -> a4aa::Result<Value> {
     };
     for resume in attempts {
         match open_once(&peer, open_params(resume.as_deref())).await {
-            Ok(result) => match opened_from(&result, &document, role, &admitted, &primary) {
-                Ok(session) => {
-                    opened = Some(session);
-                    break;
-                }
-                Err(error) => {
-                    if let Some(id) = result["sessionId"].as_str() {
-                        let _ = peer.call("session/close", json!({"sessionId": id})).await;
+            Ok(result) => {
+                match opened_from(
+                    &result,
+                    &document,
+                    role,
+                    &admitted,
+                    &primary,
+                    enforce_provider,
+                ) {
+                    Ok(session) => {
+                        opened = Some(session);
+                        break;
                     }
-                    last_error = Some(error);
-                    break;
+                    Err(error) => {
+                        if let Some(id) = result["sessionId"].as_str() {
+                            let _ = peer.call("session/close", json!({"sessionId": id})).await;
+                        }
+                        last_error = Some(error);
+                        break;
+                    }
                 }
-            },
+            }
             Err(error) => {
                 // Only an explicit stale/unsupported-session refusal may fall
                 // through to a fresh open: a transport or uncertain outcome

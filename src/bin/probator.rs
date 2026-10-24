@@ -11,6 +11,8 @@
 // beside it in src/bin/ - where Cargo would auto-discover the module as yet
 // another binary. The explicit path keeps the module tree in its own
 // directory.
+#[path = "../checker_binding.rs"]
+mod checker_binding;
 #[path = "probator/conceal.rs"]
 mod conceal;
 #[path = "probator/contract.rs"]
@@ -42,8 +44,17 @@ mod inspect;
 mod install;
 #[path = "probator/manifest.rs"]
 mod manifest;
+// Operator-ruled waivers: the signed objections ledger. This crate only reads
+// and verifies rulings; filing and signing belong to the gate that holds the
+// operator's key.
+#[path = "probator/objection.rs"]
+mod objection;
 #[path = "probator/ranges.rs"]
 mod ranges;
+// The sealed run record: report fields plus the one optional signature
+// marker whose empty default must not materialize on a re-serialization.
+#[path = "probator/records.rs"]
+mod records;
 #[path = "probator/sanitize.rs"]
 mod sanitize;
 #[path = "../seal.rs"]
@@ -298,15 +309,15 @@ fn main() -> ExitCode {
             projects,
         } => {
             match contract::load(&contract)
-                .and_then(|c| serve::load_catalog(&contract, &c).map(|catalog| (c, catalog)))
+                .and_then(|c| serve::load_catalog(&contract, &c).map(|_| c))
             {
-                Ok((contract, catalog)) => {
+                Ok(contract) => {
                     let mode = if full_service {
                         manifest::Mode::FullService
                     } else {
                         manifest::Mode::Gate
                     };
-                    let tools = manifest::manifest(&contract, mode, &projects, catalog.as_ref());
+                    let tools = manifest::manifest(&contract, mode, &projects);
                     println!(
                         "{}",
                         serde_json::to_string_pretty(&tools).unwrap_or_else(|_| "[]".to_string())

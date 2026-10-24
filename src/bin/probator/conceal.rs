@@ -16,7 +16,7 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// The desktop session-index record name for a devin-cli conversation.
 const VSCDB_KEY: &str = "windsurf.acp.sessioninfo.session.acp/devin-cli/";
@@ -230,7 +230,9 @@ fn recorded_ids(profiles_root: &Path) -> BTreeSet<String> {
 
 /// A run is in flight while its `live` marker names a pid still running.
 /// A stale marker (dead pid, unreadable pid) means the run died — its
-/// sessions are finished and safe to archive.
+/// sessions are finished and safe to archive. The probe is silent: a dead
+/// pid is the normal end of a run, not a diagnostic that belongs in the
+/// checker's captured stderr.
 fn in_flight(run_dir: &Path) -> bool {
     let Ok(pid) = std::fs::read_to_string(run_dir.join("live")) else {
         return false;
@@ -240,6 +242,9 @@ fn in_flight(run_dir: &Path) -> bool {
     };
     Command::new("kill")
         .args(["-0", &pid.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .map(|status| status.success())
         .unwrap_or(false)

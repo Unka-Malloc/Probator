@@ -351,7 +351,34 @@ pub fn ranges(repo: &str) -> Result<Vec<Target>, String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    ranges_from(repo, &event, &vars)
+    // Range resolution can fetch a remote head; the orchestrating run hands
+    // every checker the same inputs, so the first resolution is recorded and
+    // shared rather than fetched once per reviewer.
+    let Some(evidence) = crate::stage1::shared_evidence_path() else {
+        return ranges_from(repo, &event, &vars);
+    };
+    let key = format!(
+        "ranges/{}",
+        crate::seal::sha256_hex(&format!(
+            "{repo}\u{0}{}",
+            serde_json::to_string(&vars).unwrap_or_default()
+        ))
+    );
+    if let Some(cached) = crate::stage1::evidence_get(&evidence, &key)
+        && let Some(rows) = cached.as_array()
+    {
+        let targets: Vec<Target> = rows.iter().filter_map(Target::from_json).collect();
+        if targets.len() == rows.len() {
+            return Ok(targets);
+        }
+    }
+    let targets = ranges_from(repo, &event, &vars)?;
+    crate::stage1::evidence_store(
+        &evidence,
+        &key,
+        serde_json::Value::Array(targets.iter().map(Target::to_json).collect()),
+    );
+    Ok(targets)
 }
 
 #[cfg(test)]

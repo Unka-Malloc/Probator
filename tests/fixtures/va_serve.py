@@ -52,6 +52,7 @@ record(
     {
         "argv": sys.argv[1:],
         "virtual_agent_home": os.environ.get("VIRTUAL_AGENT_HOME", ""),
+        "path": os.environ.get("PATH", ""),
     },
 )
 

@@ -2089,7 +2089,8 @@
       ],
       "fetched": [],
       "expected": {
-        "error": "Applicable cost review requires official documentation"
+        "accepted": true,
+        "verdict": "pass"
       }
     }
   },

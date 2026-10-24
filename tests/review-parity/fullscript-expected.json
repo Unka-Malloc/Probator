@@ -522,6 +522,7 @@
           "azure-app-service-pricing": "https://azure.microsoft.com/pricing/details/app-service/linux/",
           "azure-aks-pricing": "https://azure.microsoft.com/pricing/details/kubernetes-service/",
           "azure-front-door-pricing": "https://azure.microsoft.com/pricing/details/frontdoor/",
+          "github-actions-billing": "https://docs.github.com/en/billing/managing-billing-for-your-products/managing-billing-for-github-actions/about-billing-for-github-actions",
           "deepseek-pricing": "https://api-docs.deepseek.com/quick_start/pricing/",
           "raft-library": "https://raw.githubusercontent.com/etcd-io/raft/main/README.md",
           "pebble-checkpoint": "https://pkg.go.dev/github.com/cockroachdb/pebble",

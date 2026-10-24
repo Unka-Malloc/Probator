@@ -19,7 +19,7 @@ A refusal is a verdict, not an obstacle:
   runs locally, prints category counts and never prints the matched value.
 - **semantic refusal** (stage two): the six domains and the three standing
   items — tooling hygiene, hardcoded parameters and repository scope — judged
-  by an isolated OpenCode conversation with a fresh context each run.
+  by an isolated agent session with a fresh context each run.
 
 Repair the change (remove or generalize the content), then publish again. Do
 not re-word the finding away and do not add a skip: the checker reads no

@@ -25,6 +25,7 @@ base64 = "0.23.1"
 chacha20poly1305 = "0.11.0"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 hmac = "0.13.0"
+http = "1"
 jiff = "0.2"
 rand = "0.10.3"
 regex = "1"

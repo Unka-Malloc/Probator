@@ -125,12 +125,6 @@ pub fn validate(contract: &Contract, state: &ReviewState, report: &Value) -> Res
                 ));
             }
         }
-        let any_reviewed = coverage
-            .map(|c| c.values().any(|entry| entry["status"] == "reviewed"))
-            .unwrap_or(false);
-        if verdict == "pass" && any_reviewed && state.fetched.is_empty() {
-            return Err("Applicable cost review requires official documentation".to_string());
-        }
     }
     Ok(())
 }

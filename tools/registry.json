@@ -113,7 +113,7 @@
       "lane": "rpc",
       "command": {
         "program": {"resolve": ["pi", "{home}/.local/bin/pi", "{home}/.pi/agent/bin/pi"]},
-        "args": ["--mode", "rpc", "--approve"]
+        "args": ["--mode", "rpc", "--approve", "--tools", "codemode,mcp__probator_audit__*", "--no-extensions", "-e", "builtin:mcp", "-e", "builtin:codemode", "-e", "builtin:tool-search", "--no-skills", "--no-prompt-templates", "--no-context-files"]
       },
       "sessionOpen": {"method": "get_state", "params": {}},
       "sessionResume": {"method": "switch_session", "params": {"sessionPath": "{sessionId}"}},

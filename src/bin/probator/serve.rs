@@ -65,7 +65,7 @@ impl Server {
         let contract = contract::load(contract_path)?;
         let evidence = Evidence::load(run_dir)?;
         let catalog = load_catalog(contract_path, &contract)?;
-        let mut documents = catalog.clone().map(Documents::new);
+        let mut documents = catalog.clone().map(Documents::new).transpose()?;
         let scope: Value = serde_json::from_str(
             &std::fs::read_to_string(run_dir.join("scope.json"))
                 .map_err(|error| format!("scope.json: {error}"))?,
@@ -257,6 +257,10 @@ impl Server {
                 &serde_json::to_string(&receipt).map_err(|e| e.to_string())?,
             );
             let mut receipt: Value = serde_json::from_str(&sanitized).map_err(|e| e.to_string())?;
+            // The record rule applies before the credential is minted: an
+            // empty policy signature is absent, never "", so the MAC covers
+            // exactly the record that is written.
+            receipt = crate::records::normalize(receipt);
             // Sign the verdict with the run's one-shot credential: only the
             // session holding this run's key can produce a receipt the gate
             // accepts, and submitting consumes it.
@@ -311,7 +315,7 @@ impl Server {
         } else {
             Mode::Gate
         };
-        manifest::manifest(&self.contract, mode, &self.projects, self.catalog.as_ref())
+        manifest::manifest(&self.contract, mode, &self.projects)
             .into_iter()
             .map(|tool| {
                 json!({
@@ -518,6 +522,41 @@ mod tests {
                 .unwrap();
         assert_eq!(unknown["error"], "unknown tool");
         assert_eq!(replies[5]["error"]["code"], json!(-32601));
+    }
+
+    /// A submitted record drops the run-record's empty policy signature
+    /// before the credential is minted, so the MAC covers exactly what is
+    /// written and an old record never gains a `""` field on the way out.
+    #[test]
+    fn a_submitted_record_omits_an_empty_policy_signature() {
+        let (_guard, contract, run) = fixture();
+        crate::credential::issue(&run).unwrap();
+        let mut server = Server::load(&contract, &run).unwrap();
+        let _ = server.call(
+            "sample_context",
+            &json!({"operation": "diff", "path": "one.txt"}),
+        );
+        let reply: Value = serde_json::from_str(&server.call(
+            "sample_submit_review",
+            &json!({
+                "verdict": "pass",
+                "summary": "clean",
+                "coverage": {"structure": {"status": "reviewed", "reason": "looked"}},
+                "findings": [],
+                "unknowns": [],
+                "policy_signature": ""
+            }),
+        ))
+        .unwrap();
+        assert_eq!(reply["accepted"], json!(true), "{reply}");
+        let report: Value =
+            serde_json::from_str(&std::fs::read_to_string(run.join("report.json")).unwrap())
+                .unwrap();
+        assert!(
+            report.get("policy_signature").is_none(),
+            "an empty policy signature must not be written: {report}"
+        );
+        assert!(report["receipt_mac"].is_string());
     }
 
     #[test]

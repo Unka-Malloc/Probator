@@ -64,18 +64,17 @@ fn context_schema(operations: &[String], revision_label: &str) -> Value {
 
 /// The findings-entry contract, generated from the same key list the
 /// validator enforces so the tool manifest and the check cannot tell the
-/// model different contracts.
-fn finding_schema(contract: &Contract, catalog: Option<&Map<String, Value>>) -> Value {
+/// model different contracts. Sources stay free-form here: the verdict check
+/// already requires every cited URL to have been fetched this review, whether
+/// it came from the catalog or was located by the reviewer.
+fn finding_schema(contract: &Contract) -> Value {
     let mut properties = Map::new();
     for key in &contract.finding_keys {
         let schema = match key.as_str() {
             "line" => json!({"type": "integer", "minimum": 1}),
             "severity" => json!({"type": "string", "enum": ["blocking", "advisory"]}),
             "sources" if contract.tools.official_documents => {
-                let urls: Vec<&str> = catalog
-                    .map(|catalog| catalog.values().filter_map(Value::as_str).collect())
-                    .unwrap_or_default();
-                json!({"type": "array", "items": {"type": "string", "enum": urls}})
+                json!({"type": "array", "items": {"type": "string"}})
             }
             _ => json!({"type": "string"}),
         };
@@ -94,12 +93,7 @@ fn finding_schema(contract: &Contract, catalog: Option<&Map<String, Value>>) -> 
 
 /// The exact manifest the bridge extension receives, in tool order: context,
 /// the official-document fetcher where contracted, submit.
-pub fn manifest(
-    contract: &Contract,
-    mode: Mode,
-    projects: &[String],
-    catalog: Option<&Map<String, Value>>,
-) -> Vec<Value> {
+pub fn manifest(contract: &Contract, mode: Mode, projects: &[String]) -> Vec<Value> {
     let prefix = &contract.tools.name_prefix;
     let full = mode == Mode::FullService && contract.tools.full_service;
     let operations = if full {
@@ -132,18 +126,13 @@ pub fn manifest(
         },
     })];
     if contract.tools.official_documents {
-        let mut names: Vec<&str> = Vec::new();
-        if let Some(catalog) = catalog {
-            names.extend(catalog.keys().map(String::as_str));
-            names.extend(catalog.values().filter_map(Value::as_str));
-        }
         tools.push(json!({
             "name": format!("{prefix}_official_doc"),
             "description": fill(contract.tools.descriptions.official_doc.as_deref().unwrap_or("")),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "enum": names},
+                    "name": {"type": "string"},
                     "offset": {"type": "integer"},
                 },
                 "required": ["name"],
@@ -159,7 +148,7 @@ pub fn manifest(
     submit_properties.insert("coverage".into(), coverage_schema(&contract.domains));
     submit_properties.insert(
         "findings".into(),
-        json!({"type": "array", "items": finding_schema(contract, catalog)}),
+        json!({"type": "array", "items": finding_schema(contract)}),
     );
     submit_properties.insert(
         "unknowns".into(),
@@ -193,7 +182,7 @@ pub fn manifest(
 mod tests {
     use super::{Mode, manifest};
     use crate::contract;
-    use serde_json::{Map, Value, json};
+    use serde_json::{Value, json};
     use std::path::Path;
 
     fn parity_dir() -> std::path::PathBuf {
@@ -202,25 +191,11 @@ mod tests {
             .join("review-parity")
     }
 
-    fn load_checker(name: &str) -> (contract::Contract, Option<Map<String, Value>>) {
+    fn load_checker(name: &str) -> contract::Contract {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tools")
             .join(name);
-        let contract =
-            contract::load(&dir.join("contract.json")).unwrap_or_else(|e| panic!("{name}: {e}"));
-        let catalog = if contract.tools.official_documents {
-            let raw = std::fs::read_to_string(dir.join("documents.json")).unwrap();
-            Some(
-                serde_json::from_str::<Value>(&raw)
-                    .unwrap()
-                    .as_object()
-                    .unwrap()
-                    .clone(),
-            )
-        } else {
-            None
-        };
-        (contract, catalog)
+        contract::load(&dir.join("contract.json")).unwrap_or_else(|e| panic!("{name}: {e}"))
     }
 
     fn golden(name: &str) -> Value {
@@ -238,8 +213,8 @@ mod tests {
             "security-enhancer",
             "sustainable-maintainer",
         ] {
-            let (contract, catalog) = load_checker(checker);
-            let produced = manifest(&contract, Mode::Gate, &[], catalog.as_ref());
+            let contract = load_checker(checker);
+            let produced = manifest(&contract, Mode::Gate, &[]);
             assert_eq!(
                 json!(produced),
                 golden(&format!("manifest-{checker}.json")),
@@ -252,8 +227,8 @@ mod tests {
     fn full_service_manifests_match_the_engine_goldens() {
         let projects = vec!["demo-app".to_string()];
         for checker in ["money-saver", "sustainable-maintainer"] {
-            let (contract, catalog) = load_checker(checker);
-            let produced = manifest(&contract, Mode::FullService, &projects, catalog.as_ref());
+            let contract = load_checker(checker);
+            let produced = manifest(&contract, Mode::FullService, &projects);
             assert_eq!(
                 json!(produced),
                 golden(&format!("manifest-{checker}-full.json")),

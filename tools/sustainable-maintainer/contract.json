@@ -2,34 +2,128 @@
   "name": "sustainable-maintainer",
   "title": "Sustainable Maintainer",
   "summary": "Long-term maintainability gate: module structure, contracts, craft, duplication, tests and evolution residue.",
-  "domains": ["structure", "contracts", "craft", "duplication", "tests", "evolution"],
-  "finding_keys": ["file", "line", "severity", "evidence", "impact", "remedy", "validation"],
+  "domains": [
+    "structure",
+    "contracts",
+    "craft",
+    "duplication",
+    "tests",
+    "evolution"
+  ],
+  "finding_keys": [
+    "file",
+    "line",
+    "severity",
+    "evidence",
+    "impact",
+    "remedy",
+    "validation"
+  ],
   "stage1": {
     "label": "deterministic",
     "surfaces": true,
     "rules": [
-      {"id": "maintainer-hygiene", "title": "Conflict markers, merge artifacts and OS junk", "kind": "builtin", "builtin": "maintainer-hygiene"}
+      {
+        "id": "maintainer-hygiene",
+        "title": "Conflict markers, merge artifacts and OS junk",
+        "kind": "builtin",
+        "builtin": "workspace-hygiene"
+      }
     ]
   },
-  "on": ["pre-push", "pr"],
+  "on": [
+    "pre-push",
+    "pr"
+  ],
   "severity": "blocking",
   "tools": {
     "name_prefix": "maintainer",
-    "context": ["inventory", "list", "diff", "read", "find"],
-    "context_full_service": ["inventory", "original_request", "list", "read", "find"],
+    "context": [
+      "inventory",
+      "list",
+      "diff",
+      "read",
+      "find"
+    ],
+    "context_full_service": [
+      "inventory",
+      "original_request",
+      "list",
+      "read",
+      "find"
+    ],
     "submit": true,
     "full_service": true,
     "descriptions": {
-      "context": "Inspect the immutable outgoing range. Start with inventory, then diff every changed file to its end; read is {read_page_lines} lines with start and revision; list globs the snapshot; find is a literal search over the range — use it to locate the original a change duplicates, the callers a contract serves, or the documentation a decision should update. Credential containers are unavailable by design.",
+      "context": "Inspect the immutable outgoing range. Start with inventory, then diff every changed file to its end; read is {read_page_lines} lines with start and revision; list globs the snapshot; find is a literal search over the range \u2014 use it to locate the original a change duplicates, the callers a contract serves, or the documentation a decision should update. Credential containers are unavailable by design.",
       "context_full_service": "Inspect the immutable snapshot. Start with inventory for mode and scope, then original_request (the review charter); list/find glob and page the snapshot, read returns numbered source. Full mode requires per-project and per-domain coverage.",
       "submit": "Submit the final maintainability verdict once, with every domain accounted for.",
       "inventory_full_service": "Read original_request (the review charter), then inspect every project. list/find accept glob pattern and offset; read returns numbered source. Submit per-project coverage naming what was inspected, and per-domain coverage. No source execution or production access."
     }
   },
   "snapshot": {
-    "suffixes": [".rs", ".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".dart", ".py", ".php", ".sql", ".sh", ".swift", ".kt", ".c", ".h", ".cpp", ".vue", ".svelte", ".html", ".css", ".astro", ".md", ".toml", ".yaml", ".yml", ".json", ".proto", ".graphql"],
-    "manifests": ["package.json", "Cargo.toml", "go.mod", "pubspec.yaml", "pyproject.toml", "requirements.txt", "Dockerfile", "Caddyfile", "nginx.conf", "README.md", "PRODUCT.md", "CONTEXT.md", "AGENTS.md", "CHANGELOG.md"],
-    "exclude_names": ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Cargo.lock", "composer.lock", "poetry.lock", "Pipfile.lock", "Podfile.lock", "pubspec.lock", "go.sum", "Gemfile.lock", "flake.lock"]
+    "suffixes": [
+      ".rs",
+      ".go",
+      ".ts",
+      ".tsx",
+      ".js",
+      ".jsx",
+      ".mjs",
+      ".cjs",
+      ".dart",
+      ".py",
+      ".php",
+      ".sql",
+      ".sh",
+      ".swift",
+      ".kt",
+      ".c",
+      ".h",
+      ".cpp",
+      ".vue",
+      ".svelte",
+      ".html",
+      ".css",
+      ".astro",
+      ".md",
+      ".toml",
+      ".yaml",
+      ".yml",
+      ".json",
+      ".proto",
+      ".graphql"
+    ],
+    "manifests": [
+      "package.json",
+      "Cargo.toml",
+      "go.mod",
+      "pubspec.yaml",
+      "pyproject.toml",
+      "requirements.txt",
+      "Dockerfile",
+      "Caddyfile",
+      "nginx.conf",
+      "README.md",
+      "PRODUCT.md",
+      "CONTEXT.md",
+      "AGENTS.md",
+      "CHANGELOG.md"
+    ],
+    "exclude_names": [
+      "package-lock.json",
+      "yarn.lock",
+      "pnpm-lock.yaml",
+      "Cargo.lock",
+      "composer.lock",
+      "poetry.lock",
+      "Pipfile.lock",
+      "Podfile.lock",
+      "pubspec.lock",
+      "go.sum",
+      "Gemfile.lock",
+      "flake.lock"
+    ]
   },
   "task": "Review the outgoing changes with the Sustainable Maintainer tools and submit one final verdict: start with inventory, read every changed diff to its end, judge all six domains, and account for every surface the deterministic stage reported. No arbitrary turn or time limit applies.",
   "task_full_service": "Perform the assigned repository-wide maintainability review. Start with inventory and original_request (the review charter), inspect every selected project across all six domains, and submit a complete report with per-project and per-domain coverage. No arbitrary turn or time limit applies."
