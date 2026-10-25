@@ -646,38 +646,16 @@ fn clean_audit_scan(
                 blobs.push((oid.to_string(), path.to_string()));
             }
         }
-        // Blob-or-tree is settled by cat-file --batch-check in one process
-        // rather than one probe per object. The oid list goes through a file:
-        // piped stdin plus wait_with_output deadlocks once the list outgrows
-        // the pipe buffer - the child stalls writing stdout nobody reads
-        // while the parent stalls writing stdin nobody drains.
+        // Blob-or-tree is settled by one batched cat-file query rather
+        // than one probe per object.
         if !blobs.is_empty() {
-            use std::io::{Seek as _, SeekFrom, Write as _};
-            let (list, mut file) = spec_file()?;
-            let checked = (|| {
-                for (oid, _) in &blobs {
-                    writeln!(file, "{oid}")
-                        .map_err(|e| format!("Git could not stage the batch list: {e}"))?;
-                }
-                file.flush()
-                    .and_then(|_| file.seek(SeekFrom::Start(0)))
-                    .map_err(|e| format!("Git could not stage the batch list: {e}"))?;
-                Command::new("git")
-                    .arg("-C")
-                    .arg(repo)
-                    .args(["cat-file", "--batch-check=%(objectname) %(objecttype)"])
-                    .stdin(std::process::Stdio::from(file))
-                    .output()
-                    .map_err(|e| format!("Git could not read the review snapshot: {e}"))
-            })();
-            let _ = std::fs::remove_file(&list);
-            let checked = checked?;
-            let is_blob: std::collections::HashSet<String> =
-                String::from_utf8_lossy(&checked.stdout)
-                    .lines()
-                    .filter(|l| l.ends_with(" blob"))
-                    .filter_map(|l| l.split(' ').next().map(str::to_string))
-                    .collect();
+            let specs: Vec<&str> = blobs.iter().map(|(oid, _)| oid.as_str()).collect();
+            let checked = batch_check(repo, &specs, "%(objectname) %(objecttype)")?;
+            let is_blob: std::collections::HashSet<String> = checked
+                .lines()
+                .filter(|l| l.ends_with(" blob"))
+                .filter_map(|l| l.split(' ').next().map(str::to_string))
+                .collect();
             let objects: Vec<(String, String)> = blobs
                 .into_iter()
                 .filter(|(oid, _)| is_blob.contains(oid))
@@ -1270,6 +1248,9 @@ fn remedy(rule: &str) -> Option<&'static str> {
         "surface/interface-change" => {
             "this change touches a published interface -- confirm a migration or version bump answers it"
         }
+        "surface/suppressed-unreadable" => {
+            "an attribute-suppressed diff had no readable blob on either side (binary or oversized) -- the deterministic stage could not check its lines; review the blobs directly"
+        }
         _ => return None,
     })
 }
@@ -1345,23 +1326,27 @@ fn unquote_git_path(raw: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// (added, removed) per path across the whole range - one `git diff` for
-/// every file instead of one process per path. Same numbering the per-path
-/// reader used: added lines numbered at head, removed at base. A changed
-/// blob whose hunks the attribute layer suppresses (`-diff`, `binary`)
-/// still owes the audit its real delta: a second `diff --text` pass scoped
-/// to exactly those paths recovers it, so removal rules see deleted lines
-/// and added-line rules see only what the range actually added. Recovery
-/// eligibility comes from the raw oid pair - a same-oid mode-only record
-/// recovers nothing - and the only skip is a surviving side that reads as
-/// binary. Deletions and oversized blobs are not excluded: suppressing a
-/// deletion's diff must not erase its removed lines, and an unsuppressed
-/// large text change would have cost the same bytes.
+/// (added, removed) per path across the whole range, plus the changed
+/// paths whose delta could not be recovered - the caller surfaces those
+/// so the semantic stage knows coverage stopped. One `git diff` parses
+/// every file instead of one process per path; same numbering the
+/// per-path reader used: added at head, removed at base.
+///
+/// A changed blob whose hunks the attribute layer suppresses (`-diff`,
+/// `binary`) still owes the audit its real delta where that delta is
+/// readable: eligibility keys on the raw oid pair, a same-oid mode-only
+/// record recovers nothing and reads no blob, and each side of the pair
+/// disqualifies independently - the base blob owns removed lines, the
+/// head blob added ones. Three cases lose coverage and land in the
+/// second return value: a surviving side that is binary, a surviving side
+/// over MAX_SCAN_BYTES (the unbounded-read bound - an oversized
+/// suppressed deletion's removed lines are NOT recovered), and a record
+/// the raw pass could not parse. Unsuppressed peers still report.
 fn range_diff(
     repo: &str,
     target: &Target,
     paths: &[String],
-) -> Result<std::collections::HashMap<String, DiffLines>, String> {
+) -> Result<(std::collections::HashMap<String, DiffLines>, Vec<String>), String> {
     let base = target.base.as_deref().unwrap_or(EMPTY_TREE);
     let output = git(
         repo,
@@ -1390,35 +1375,38 @@ fn range_diff(
         .cloned()
         .collect();
     if suppressed.is_empty() {
-        return Ok(diffs);
+        return Ok((diffs, Vec::new()));
     }
     let oids = range_oids(repo, target)?;
     let is_zero = |oid: &str| oid.bytes().all(|byte| byte == b'0');
     // Each surviving side is judged on its own: the base blob owns the
-    // removed lines, the head blob the added ones. A zero oid is a side
-    // that does not exist; a path the raw pass did not record is treated
-    // as changed on both sides rather than dropped.
-    let mut sides: Vec<(String, Option<String>, Option<String>)> = Vec::new();
+    // removed lines, the head blob the added ones.
+    let mut sides: Vec<(String, String, String)> = Vec::new();
+    let mut recover: Vec<String> = Vec::new();
+    let mut gating: std::collections::HashMap<String, (bool, bool)> = Default::default();
     for path in suppressed {
         match oids.get(&path) {
+            // Changed without a raw record: recover rather than guess.
+            None => {
+                gating.insert(path.clone(), (true, true));
+                recover.push(path);
+            }
+            // A same-oid record is a mode-only change with nothing to
+            // recover - it is skipped before any blob is read.
             Some((base_oid, head_oid)) if base_oid == head_oid => continue,
-            Some((base_oid, head_oid)) => sides.push((
-                path,
-                (!is_zero(base_oid)).then(|| base_oid.clone()),
-                (!is_zero(head_oid)).then(|| head_oid.clone()),
-            )),
-            None => sides.push((path, None, None)),
+            Some((base_oid, head_oid)) => {
+                sides.push((path, base_oid.clone(), head_oid.clone()));
+            }
         }
     }
-    // Size gates what is read: a side beyond MAX_SCAN_BYTES disqualifies
-    // only its own lines - a suppressed giant binary deletion still keeps
-    // its removed-line coverage through the bounded base side.
-    let oids_present: Vec<String> = sides
+    // Size gates which blob bodies are read at all; a side over the cap
+    // or reading as binary disqualifies only its own lines.
+    let probes: Vec<String> = sides
         .iter()
-        .flat_map(|(_, b, h)| [b, h].into_iter().flatten().cloned())
+        .flat_map(|(_, b, h)| [b, h].into_iter().filter(|oid| !is_zero(oid)).cloned())
         .collect();
-    let sizes = blob_sizes(repo, &oids_present)?;
-    let bounded: Vec<String> = oids_present
+    let sizes = blob_sizes(repo, &probes)?;
+    let bounded: Vec<String> = probes
         .iter()
         .filter(|oid| sizes.get(*oid).is_some_and(|size| *size <= MAX_SCAN_BYTES))
         .cloned()
@@ -1430,30 +1418,26 @@ fn range_diff(
         }
         Ok(true)
     })?;
-    let readable = |side: &Option<String>| -> bool {
-        match side {
-            // No oid recorded: the change is real but the pair is unknown,
-            // so the side stays eligible.
-            None => true,
-            Some(oid) => {
-                sizes.get(oid).is_some_and(|size| *size <= MAX_SCAN_BYTES) && !binary.contains(oid)
-            }
-        }
+    let readable = |oid: &String| -> bool {
+        sizes.get(oid).is_some_and(|size| *size <= MAX_SCAN_BYTES) && !binary.contains(oid)
     };
-    let mut gating: std::collections::HashMap<String, (bool, bool)> = Default::default();
-    let mut recover: Vec<String> = Vec::new();
+    let mut excluded: Vec<String> = Vec::new();
     for (path, base_oid, head_oid) in sides {
-        // A side that does not exist (add/delete) cannot be unreadable -
-        // it simply has no lines; its counterpart still decides recovery.
-        let base_ok = base_oid.is_none() || readable(&base_oid);
-        let head_ok = head_oid.is_none() || readable(&head_oid);
+        let base_ok = !is_zero(&base_oid) && readable(&base_oid);
+        let head_ok = !is_zero(&head_oid) && readable(&head_oid);
+        // Only an existing, readable side earns the forced diff: a blob
+        // that is binary or oversized on every surviving side has no
+        // lines worth patching, and the path is reported as unreadable
+        // coverage instead of silently dropped.
         if base_ok || head_ok {
             gating.insert(path.clone(), (base_ok, head_ok));
             recover.push(path);
+        } else {
+            excluded.push(path);
         }
     }
     if recover.is_empty() {
-        return Ok(diffs);
+        return Ok((diffs, excluded));
     }
     let mut args: Vec<&str> = vec![
         "--literal-pathspecs",
@@ -1483,26 +1467,24 @@ fn range_diff(
             diffs.entry(path).or_insert(pair);
         }
     }
-    Ok(diffs)
+    Ok((diffs, excluded))
 }
 
-/// oid -> byte size in one `cat-file --batch-check` pass, so recovery can
-/// bound its reads before any blob body is touched. Oids come from git's
-/// own whitespace-split raw records, and an object git cannot resolve
-/// simply stays absent - its side is treated as unbounded.
-fn blob_sizes(
-    repo: &str,
-    oids: &[String],
-) -> Result<std::collections::HashMap<String, usize>, String> {
+/// One `cat-file --batch-check` pass over a spec list, returning stdout as
+/// text. The spec list goes through a file: piped stdin plus unconsumed
+/// stdout deadlocks once the list outgrows the pipe buffer - the child
+/// stalls writing output nobody reads while the parent stalls writing
+/// input nobody drains. spec_file carries the 0600/create_new file
+/// contract.
+fn batch_check(repo: &str, specs: &[&str], format: &str) -> Result<String, String> {
     use std::io::{Seek as _, SeekFrom, Write as _};
-    let mut sizes: std::collections::HashMap<String, usize> = Default::default();
-    if oids.is_empty() {
-        return Ok(sizes);
+    if specs.is_empty() {
+        return Ok(String::new());
     }
     let (list, mut file) = spec_file()?;
     let output = (|| {
-        for oid in oids {
-            writeln!(file, "{oid}")
+        for spec in specs {
+            writeln!(file, "{spec}")
                 .map_err(|e| format!("Git could not stage the batch list: {e}"))?;
         }
         file.flush()
@@ -1511,17 +1493,38 @@ fn blob_sizes(
         Command::new("git")
             .arg("-C")
             .arg(repo)
-            .args(["cat-file", "--batch-check=%(objectname) %(objectsize)"])
+            .args(["cat-file", &format!("--batch-check={format}")])
             .stdin(std::process::Stdio::from(file))
             .output()
             .map_err(|e| format!("Git could not read the review snapshot: {e}"))
     })();
     let _ = std::fs::remove_file(&list);
-    for line in String::from_utf8_lossy(&output?.stdout).lines() {
-        if let Some((oid, size)) = line.rsplit_once(' ')
-            && let Ok(size) = size.parse::<usize>()
-        {
-            sizes.insert(oid.to_string(), size);
+    Ok(String::from_utf8_lossy(&output?.stdout).into_owned())
+}
+
+/// oid -> byte size in one `cat-file --batch-check` pass, so recovery can
+/// bound its reads before any blob body is touched. Rows are aligned to
+/// the input list positionally - `--batch-check` prints exactly one line
+/// per query - so the caller's oid spelling (`--no-abbrev` upstream is
+/// what keeps raw records full-length) never has to round-trip through
+/// git's own echo.
+fn blob_sizes(
+    repo: &str,
+    oids: &[String],
+) -> Result<std::collections::HashMap<String, usize>, String> {
+    let mut sizes: std::collections::HashMap<String, usize> = Default::default();
+    if oids.is_empty() {
+        return Ok(sizes);
+    }
+    let specs: Vec<&str> = oids.iter().map(String::as_str).collect();
+    let output = batch_check(repo, &specs, "%(objectname) %(objectsize)")?;
+    let rows: Vec<&str> = output.lines().collect();
+    if rows.len() != oids.len() {
+        return Err("Git could not size the review blobs: batch reply lost rows".into());
+    }
+    for (oid, row) in oids.iter().zip(rows) {
+        if let Some(size) = row.rsplit(' ').next().and_then(|s| s.parse().ok()) {
+            sizes.insert(oid.clone(), size);
         }
     }
     Ok(sizes)
@@ -1996,6 +1999,7 @@ fn checklist_audit(
     target: &Target,
     changed: &[String],
     diffs: &std::collections::HashMap<String, DiffLines>,
+    unreadable: &[String],
     with_surfaces: bool,
 ) -> Result<(Vec<Hit>, Vec<Hit>), String> {
     let mut regressions = Vec::new();
@@ -2006,16 +2010,32 @@ fn checklist_audit(
         .cloned()
         .collect();
     let rules = line_rules();
-    // Surfaces describe what the range touched - including deletions - so
-    // they come from the base..head name set, not the caller's scan list:
-    // for a snapshot-with-base target the scan list is the whole tree.
-    // No base means every head path is new, and a contract that does not
-    // echo surfaces pays no enumeration at all.
-    let touched = if with_surfaces {
-        changed_paths(repo, target)?
-    } else {
+    // Surfaces describe what the range touched - including deletions. The
+    // caller's changed list already is the base..head name set for a
+    // range target; for a snapshot-with-base target the scan list is the
+    // whole tree, so the touched set is enumerated separately. No base
+    // means every head path is new, and a contract that does not echo
+    // surfaces pays no enumeration at all.
+    let touched = if !with_surfaces {
         Some(Default::default())
+    } else if target.scope == "range" {
+        Some(changed.iter().cloned().collect())
+    } else {
+        changed_paths(repo, target)?
     };
+    // A suppressed diff whose surviving sides were all unreadable leaves
+    // a hole in this stage's coverage - surface it so the semantic stage
+    // knows to look rather than adjudicating silence.
+    if with_surfaces {
+        for path in unreadable {
+            surfaces.push(Hit {
+                path: path.clone(),
+                line: 1,
+                rule: "surface/suppressed-unreadable".into(),
+                remedy: remedy("surface/suppressed-unreadable"),
+            });
+        }
+    }
 
     // Files whose mere presence or newness is the finding.
     for path in &paths {
@@ -2399,10 +2419,10 @@ pub fn audit(
                         Some("added-lines" | "removed-lines")
                     )
         });
-    let diffs = if needs_diffs {
+    let (diffs, unreadable) = if needs_diffs {
         range_diff(repo, target, &paths)?
     } else {
-        Default::default()
+        (Default::default(), Vec::new())
     };
     for rule in rules {
         match rule.kind.as_str() {
@@ -2454,7 +2474,7 @@ pub fn audit(
                 }
                 "static-checklist" => {
                     let (regressions, found_surfaces) =
-                        checklist_audit(repo, target, &paths, &diffs, with_surfaces)?;
+                        checklist_audit(repo, target, &paths, &diffs, &unreadable, with_surfaces)?;
                     surfaces.get_or_insert_with(Vec::new).extend(found_surfaces);
                     if !regressions.is_empty() {
                         status = "regression".into();
@@ -2517,12 +2537,12 @@ mod tests {
 
     fn checklist(repo: &str, target: &super::Target) -> (Vec<Hit>, Vec<Hit>) {
         let paths = outgoing_paths(repo, target).unwrap();
-        let diffs = if target.scope == "range" {
+        let (diffs, unreadable) = if target.scope == "range" {
             range_diff(repo, target, &paths).unwrap()
         } else {
-            Default::default()
+            (Default::default(), Vec::new())
         };
-        checklist_audit(repo, target, &paths, &diffs, true).unwrap()
+        checklist_audit(repo, target, &paths, &diffs, &unreadable, true).unwrap()
     }
 
     #[test]
@@ -3037,7 +3057,7 @@ mod tests {
         let head = commit_all(root, "head");
         let target = range_target(base, head);
         let paths = outgoing_paths(root.to_str().unwrap(), &target).unwrap();
-        let diffs = range_diff(root.to_str().unwrap(), &target, &paths).unwrap();
+        let (diffs, _) = range_diff(root.to_str().unwrap(), &target, &paths).unwrap();
         for (path, added) in [("café.py", 1usize), ("gone.py", 0)] {
             let Some((a, _)) = diffs.get(path) else {
                 panic!("{path} must key the diff map: {diffs:?}");
@@ -3178,7 +3198,7 @@ mod tests {
             builtin: None,
         };
         let paths = outgoing_paths(root.to_str().unwrap(), &target).unwrap();
-        let diffs = range_diff(root.to_str().unwrap(), &target, &paths).unwrap();
+        let (diffs, _) = range_diff(root.to_str().unwrap(), &target, &paths).unwrap();
         let hits = regex_hits(root.to_str().unwrap(), &target, &rule, &paths, &diffs).unwrap();
         assert_eq!(
             hits.iter()
@@ -3232,6 +3252,147 @@ mod tests {
                 "{variant} suppressed={suppressed}: the removed rule line must still surface"
             );
         }
+    }
+
+    /// A `-diff` file whose head turned binary keeps its base side: the
+    /// removed rule line is still recovered and reported, while the head
+    /// side is gated so added-lines rules see no mojibake.
+    #[test]
+    fn a_suppressed_binary_head_loses_only_its_own_side() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-binside-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let b64 = |s: &str| {
+            String::from_utf8(base64::engine::general_purpose::STANDARD.decode(s).unwrap()).unwrap()
+        };
+        std::fs::write(root.join(".gitattributes"), ".gitignore -diff\n").unwrap();
+        std::fs::write(root.join(".gitignore"), b64("Ki5wZW0Ka2VlcC50eHQK")).unwrap();
+        let base = commit_all(root, "base");
+        // Head goes binary: the added side can no longer describe lines.
+        std::fs::write(root.join(".gitignore"), b"pack\x00\x01\x02binary\n").unwrap();
+        let head = commit_all(root, "head");
+        let target = range_target(base, head);
+        let (regressions, _) = checklist(root.to_str().unwrap(), &target);
+        assert_eq!(
+            regressions
+                .iter()
+                .filter(|h| h.rule == "hardening/ignore-rule-removed" && h.path == ".gitignore")
+                .count(),
+            1,
+            "the readable base side still feeds removal rules"
+        );
+        let rule = Rule {
+            id: "test/anyline".into(),
+            title: "any".into(),
+            kind: "regex".into(),
+            pattern: Some(".".into()),
+            target: Some("added-lines".into()),
+            prompt: None,
+            builtin: None,
+        };
+        let paths = outgoing_paths(root.to_str().unwrap(), &target).unwrap();
+        let (diffs, unreadable) = range_diff(root.to_str().unwrap(), &target, &paths).unwrap();
+        let hits = regex_hits(root.to_str().unwrap(), &target, &rule, &paths, &diffs).unwrap();
+        assert!(
+            hits.iter().all(|h| h.path != ".gitignore"),
+            "the gated head side must not feed added-lines rules"
+        );
+        assert!(
+            unreadable.is_empty(),
+            "one readable side keeps the path out of the unreadable set"
+        );
+    }
+
+    /// A suppressed deletion whose only surviving side is oversized keeps
+    /// the read bound - the removed lines are not recovered, and the
+    /// coverage hole is surfaced instead of silent.
+    #[test]
+    fn a_suppressed_oversized_deletion_surfaces_its_gap() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-bigside-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join(".gitattributes"), ".gitignore -diff\n").unwrap();
+        let mut content = b"*.pem\n".to_vec();
+        content.resize(1024 * 1024 + 64, b'x');
+        std::fs::write(root.join(".gitignore"), &content).unwrap();
+        let base = commit_all(root, "base");
+        std::fs::remove_file(root.join(".gitignore")).unwrap();
+        let head = commit_all(root, "head");
+        let target = range_target(base, head);
+        let (regressions, surfaces) = checklist(root.to_str().unwrap(), &target);
+        assert_eq!(
+            regressions
+                .iter()
+                .filter(|h| h.rule == "hardening/ignore-rule-removed")
+                .count(),
+            0,
+            "the oversized base side is not recovered"
+        );
+        assert_eq!(
+            surfaces
+                .iter()
+                .filter(|h| h.rule == "surface/suppressed-unreadable" && h.path == ".gitignore")
+                .count(),
+            1,
+            "the coverage hole is surfaced for the semantic stage"
+        );
+    }
+
+    /// A snapshot-scoped target that still carries a base derives its
+    /// instruction surfaces from the base..head name set - a deleted
+    /// channel file reports, an untouched same-tree sibling does not.
+    #[test]
+    fn a_snapshot_with_base_scopes_surfaces_to_the_range() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-snapbase-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join("AGENTS.md"), "rules\n").unwrap();
+        std::fs::write(root.join("docs/SKILL.md"), "skill\n").unwrap();
+        let base = commit_all(root, "base");
+        std::fs::remove_file(root.join("AGENTS.md")).unwrap();
+        std::fs::write(root.join("src.rs"), "fn main() {}\n").unwrap();
+        let head = commit_all(root, "head");
+        let target = super::Target {
+            kind: "push".to_string(),
+            label: "snapshot-with-base".to_string(),
+            scope: "snapshot".to_string(),
+            base: Some(base),
+            head,
+            ref_: None,
+        };
+        let (_, surfaces) = checklist(root.to_str().unwrap(), &target);
+        let surfaced: Vec<&str> = surfaces
+            .iter()
+            .filter(|h| h.rule == "surface/instruction-channel")
+            .map(|h| h.path.as_str())
+            .collect();
+        assert!(
+            surfaced.contains(&"AGENTS.md"),
+            "the deleted channel file is a surface: {surfaced:?}"
+        );
+        assert!(
+            !surfaced.contains(&"docs/SKILL.md"),
+            "an untouched in-tree file is not re-surfaced: {surfaced:?}"
+        );
     }
 
     /// A deleted file has no head blob — a spec like `head:Release Notes.md`
