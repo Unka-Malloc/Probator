@@ -64,9 +64,9 @@ impl Fixture {
                 "pi": {"id": "pi", "lane": "rpc", "command": {"program": "pi", "args": []}}
             },
             "profiles": {
-                "synthetic-reviewer": {"agent": "opencode"},
-                "synthetic-reviewer-devin": {"agent": "devin", "model": "swe-2-max"},
-                "synthetic-reviewer-pi": {"agent": "pi", "model": "openai/gpt-6.1-sol", "effort": "xhigh"}
+                "synthetic-reviewer": {"agent": "opencode", "permission": "read-only"},
+                "synthetic-reviewer-devin": {"agent": "devin", "model": "swe-2-max", "permission": "read-only"},
+                "synthetic-reviewer-pi": {"agent": "pi", "model": "openai/gpt-6.1-sol", "effort": "xhigh", "permission": "read-only"}
             },
             "bindings": {
                 "audit": {"profile": "synthetic-reviewer", "prompt": "Binding context.",
@@ -376,7 +376,7 @@ fn each_auditor_has_its_own_awp_principal() {
         )
         .unwrap();
         let mut document = fixture.document();
-        document["profiles"][id] = json!({"agent": "opencode"});
+        document["profiles"][id] = json!({"agent": "opencode", "permission": "read-only"});
         document["bindings"]["audit"]["profile"] = json!(id);
         fixture.write_document(&document);
         fixture.profile = id.to_string();
@@ -796,8 +796,8 @@ fn checker_named_user_registry() -> Value {
             "pi-audit": audit_safe_pi_agent("pi-audit")
         },
         "profiles": {
-            "audit-fast": {"agent": "pi-audit", "model": ""},
-            "audit-deep": {"agent": "pi-audit", "model": "openai/gpt-6.1-sol"}
+            "audit-fast": {"agent": "pi-audit", "model": "", "permission": "read-only"},
+            "audit-deep": {"agent": "pi-audit", "model": "openai/gpt-6.1-sol", "permission": "read-only"}
         },
         "bindings": {
             "synthetic-reviewer": {
@@ -900,7 +900,7 @@ fn a_serve_binding_without_an_audit_safe_command_is_refused() {
             "opencode-default": {"id": "opencode-default", "clientName": "opencode", "lane": "serve"}
         },
         "profiles": {
-            "audit-serve": {"agent": "opencode-default", "model": "opencode/stub-free"}
+            "audit-serve": {"agent": "opencode-default", "model": "opencode/stub-free", "permission": "read-only"}
         },
         "bindings": {
             "synthetic-reviewer": {"profile": "audit-serve"}

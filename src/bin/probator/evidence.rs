@@ -105,7 +105,15 @@ pub fn safe_path(path: &str) -> Result<&str, String> {
 /// `fnmatch.fnmatchcase`: `*` spans slashes, `?` is one character, `[...]` a
 /// class. Translated to a regular expression, the same construction CPython
 /// uses.
+#[cfg(test)]
 pub(crate) fn fnmatchcase(name: &str, pattern: &str) -> Result<bool, String> {
+    Ok(fnmatch_regex(pattern)?.is_match(name))
+}
+
+/// The compiled form of one glob, for callers matching it against many
+/// names: regex compilation is the expensive half and belongs outside the
+/// loop.
+pub(crate) fn fnmatch_regex(pattern: &str) -> Result<regex::Regex, String> {
     let chars: Vec<char> = pattern.chars().collect();
     // Anchored at both ends: is_match searches unanchored, fnmatch compares
     // the whole name.
@@ -146,9 +154,7 @@ pub(crate) fn fnmatchcase(name: &str, pattern: &str) -> Result<bool, String> {
         i += 1;
     }
     translated.push_str(r")\z");
-    let pattern =
-        regex::Regex::new(&translated).map_err(|error| format!("invalid list pattern: {error}"))?;
-    Ok(pattern.is_match(name))
+    regex::Regex::new(&translated).map_err(|error| format!("invalid list pattern: {error}"))
 }
 pub(crate) fn git(repo: &str, args: &[&str]) -> Result<std::process::Output, String> {
     let output = Command::new("git")
@@ -292,10 +298,10 @@ impl Evidence {
     /// match order — the same `{matches, more}` shape `find` returns, since
     /// the manifest promises offset pagination on both.
     pub fn list(&self, pattern: Option<&str>, offset: Option<i64>) -> Result<Value, String> {
-        let pattern = pattern.unwrap_or("*");
+        let pattern = fnmatch_regex(pattern.unwrap_or("*"))?;
         let mut matches = Vec::new();
         for path in &self.order {
-            if fnmatchcase(path, pattern)? {
+            if pattern.is_match(path) {
                 matches.push(path.clone());
             }
         }

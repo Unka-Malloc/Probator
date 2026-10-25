@@ -1,7 +1,7 @@
 [
   {
     "name": "money_context",
-    "description": "Inspect immutable source. Start with inventory for review mode and scope. Commit mode requires every changed diff; full mode requires original_request and per-project coverage. read is 400 lines with start; find/list use pattern glob and offset pagination. Full-mode find supports literal alternatives separated by |.",
+    "description": "Inspect the immutable snapshot. Start with inventory for mode and scope, then original_request (the review charter); list/find glob and page the snapshot, read returns numbered source. Full-mode find supports literal alternatives separated by |. No source execution or production access.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -11,7 +11,6 @@
             "inventory",
             "original_request",
             "list",
-            "diff",
             "read",
             "find"
           ]

@@ -426,6 +426,98 @@ fn clean_audit(repo: &str, target: &Target, opts: &Opts) -> Result<(String, Vec<
     Ok((why, hits))
 }
 
+/// Stream the objects named by `specs` through one `git cat-file --batch`
+/// process, in input order. `f` receives the spec's index and the object's
+/// bytes; returning `false` stops the pass early. Specs go through a file:
+/// piped stdin plus a parent that stalls reading deadlocks once the list
+/// outgrows the pipe buffer.
+fn for_each_blob(
+    repo: &str,
+    specs: &[String],
+    mut f: impl FnMut(usize, &[u8]) -> Result<bool, String>,
+) -> Result<(), String> {
+    use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+    if specs.is_empty() {
+        return Ok(());
+    }
+    let list = std::env::temp_dir().join(format!(
+        "probator-oids-{}-{:04x}",
+        std::process::id(),
+        rand::random::<u16>()
+    ));
+    let spawned = std::fs::File::create(&list)
+        .and_then(|mut file| {
+            for spec in specs {
+                writeln!(file, "{spec}")?;
+            }
+            file.flush()?;
+            std::fs::File::open(&list)
+        })
+        .and_then(|input| {
+            Command::new("git")
+                .arg("-C")
+                .arg(repo)
+                .args(["cat-file", "--batch"])
+                .stdin(std::process::Stdio::from(input))
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+        });
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = std::fs::remove_file(&list);
+            return Err(format!("Git could not read the review snapshot: {error}"));
+        }
+    };
+    let mut out = BufReader::new(child.stdout.take().unwrap());
+    let mut result = Ok(());
+    for index in 0..specs.len() {
+        let mut header = String::new();
+        if out.read_line(&mut header).unwrap_or(0) == 0 {
+            result = Err("Git could not read the review snapshot: batch ended early".into());
+            break;
+        }
+        // "<oid> <type> <size>\n", or "<spec> missing" for a spec with no
+        // object - the pass skips it and keeps the order contract.
+        let mut tokens = header.split_whitespace();
+        let _ = tokens.next();
+        let size = match (tokens.next(), tokens.next()) {
+            (Some(_kind), Some(size)) => size.parse::<usize>().ok(),
+            (Some("missing"), None) => continue,
+            _ => None,
+        };
+        let Some(size) = size else {
+            result = Err(format!(
+                "Git could not read the review snapshot: bad batch header {header:?}"
+            ));
+            break;
+        };
+        let mut blob = vec![0u8; size];
+        let mut newline = [0u8; 1];
+        if out
+            .read_exact(&mut blob)
+            .and_then(|_| out.read_exact(&mut newline))
+            .is_err()
+        {
+            result = Err("Git could not read the review snapshot: truncated batch".into());
+            break;
+        }
+        match f(index, &blob) {
+            Ok(true) => {}
+            Ok(false) => break,
+            Err(error) => {
+                result = Err(error);
+                break;
+            }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_file(&list);
+    result
+}
+
 fn clean_audit_scan(
     repo: &str,
     target: &Target,
@@ -448,6 +540,7 @@ fn clean_audit_scan(
     }
     let mut hits = Vec::new();
     let mut scanned: std::collections::HashSet<String> = Default::default();
+    let mut files: Vec<(String, String)> = Vec::new();
     for record in git(repo, &["ls-tree", "-rz", &target.head])?
         .stdout
         .split(|byte| *byte == 0)
@@ -464,33 +557,31 @@ fn clean_audit_scan(
         }
         if let Some(oid) = metadata.split_whitespace().nth(2) {
             scanned.insert(oid.to_string());
+            files.push((path.to_string(), oid.to_string()));
         }
-        let blob = git(
-            repo,
-            &["cat-file", "blob", &format!("{}:{path}", target.head)],
-        )?;
-        if is_binary(&blob.stdout, 8000) {
-            continue;
+    }
+    let oids: Vec<String> = files.iter().map(|(_, oid)| oid.clone()).collect();
+    for_each_blob(repo, &oids, |index, blob| {
+        if is_binary(blob, 8000) {
+            return Ok(true);
         }
-        for (number, line) in String::from_utf8_lossy(&blob.stdout).lines().enumerate() {
+        for (number, line) in String::from_utf8_lossy(blob).lines().enumerate() {
             let Some((rule, _)) = patterns.iter().find(|(_, pattern)| pattern.is_match(line))
             else {
                 continue;
             };
             hits.push(Hit {
-                path: path.to_string(),
+                path: files[index].0.clone(),
                 line: number as u64 + 1,
                 rule: rule.to_string(),
                 remedy: None,
             });
             if hits.len() >= MAX_HITS {
-                break;
+                return Ok(false);
             }
         }
-        if hits.len() >= MAX_HITS {
-            break;
-        }
-    }
+        Ok(true)
+    })?;
     // The history pass: blobs the range adds that the head-tree pass did not
     // already scan. `rev-list --objects` lists "<sha> <path>" for trees and
     // blobs reachable from head but not base; commits carry no path. A first
@@ -551,20 +642,22 @@ fn clean_audit_scan(
                     .filter(|l| l.ends_with(" blob"))
                     .filter_map(|l| l.split(' ').next().map(str::to_string))
                     .collect();
-            'objects: for (oid, path) in blobs {
-                if !is_blob.contains(&oid) {
-                    continue;
+            let objects: Vec<(String, String)> = blobs
+                .into_iter()
+                .filter(|(oid, _)| is_blob.contains(oid))
+                .collect();
+            let specs: Vec<String> = objects.iter().map(|(oid, _)| oid.clone()).collect();
+            for_each_blob(repo, &specs, |index, blob| {
+                if is_binary(blob, 8000) {
+                    return Ok(true);
                 }
-                let blob = git(repo, &["cat-file", "blob", &oid])?;
-                if is_binary(&blob.stdout, 8000) {
-                    continue;
-                }
+                let (oid, path) = &objects[index];
                 let label = if path.is_empty() {
                     format!("history-blob {oid}")
                 } else {
                     format!("{path} (range blob {oid})")
                 };
-                for (number, line) in String::from_utf8_lossy(&blob.stdout).lines().enumerate() {
+                for (number, line) in String::from_utf8_lossy(blob).lines().enumerate() {
                     let Some((rule, _)) =
                         patterns.iter().find(|(_, pattern)| pattern.is_match(line))
                     else {
@@ -577,10 +670,11 @@ fn clean_audit_scan(
                         remedy: None,
                     });
                     if hits.len() >= MAX_HITS {
-                        break 'objects;
+                        return Ok(false);
                     }
                 }
-            }
+                Ok(true)
+            })?;
         }
     }
     let refused = if hits.iter().any(|hit| hit.rule == "withheld-name") {
@@ -770,7 +864,7 @@ fn deps_audit(repo: &str, target: &Target, _opts: &Opts) -> Result<Vec<Hit>, Str
     if forbidden.is_empty() {
         return Ok(Vec::new());
     }
-    let mut hits = Vec::new();
+    let mut docs: Vec<(String, String)> = Vec::new();
     for record in git(repo, &["ls-tree", "-r", "-z", &target.head])?
         .stdout
         .split(|byte| *byte == 0)
@@ -788,20 +882,23 @@ fn deps_audit(repo: &str, target: &Target, _opts: &Opts) -> Result<Vec<Hit>, Str
         if !is_document(path) {
             continue;
         }
-        let blob = git(
-            repo,
-            &["cat-file", "blob", &format!("{}:{path}", target.head)],
-        )?;
-        if is_binary(&blob.stdout, 8000) {
-            continue;
+        if let Some(oid) = metadata.split_whitespace().nth(2) {
+            docs.push((path.to_string(), oid.to_string()));
         }
-        for (number, line) in String::from_utf8_lossy(&blob.stdout).lines().enumerate() {
+    }
+    let mut hits = Vec::new();
+    let oids: Vec<String> = docs.iter().map(|(_, oid)| oid.clone()).collect();
+    for_each_blob(repo, &oids, |index, blob| {
+        if is_binary(blob, 8000) {
+            return Ok(true);
+        }
+        for (number, line) in String::from_utf8_lossy(blob).lines().enumerate() {
             let Some((name, _)) = forbidden.iter().find(|(_, pattern)| pattern.is_match(line))
             else {
                 continue;
             };
             hits.push(Hit {
-                path: format!("{path} ({name})"),
+                path: format!("{} ({name})", docs[index].0),
                 line: number as u64 + 1,
                 rule: "dependency-direction".to_string(),
                 remedy: Some(
@@ -810,13 +907,11 @@ fn deps_audit(repo: &str, target: &Target, _opts: &Opts) -> Result<Vec<Hit>, Str
                 ),
             });
             if hits.len() >= MAX_HITS {
-                break;
+                return Ok(false);
             }
         }
-        if hits.len() >= MAX_HITS {
-            break;
-        }
-    }
+        Ok(true)
+    })?;
     Ok(hits)
 }
 
@@ -1022,6 +1117,8 @@ fn hygiene_audit(
             remedy: remedy("surface/interface-change"),
         })
         .collect();
+    let mut paths_kept = Vec::new();
+    let mut specs = Vec::new();
     for path in paths {
         if deleted.contains(&path) {
             continue;
@@ -1039,27 +1136,23 @@ fn hygiene_audit(
         if BINARY_HINT.is_match(&path) {
             continue;
         }
-        let blob = Command::new("git")
-            .arg("-C")
-            .arg(repo)
-            .args(["show", &format!("{}:{path}", target.head)])
-            .output()
-            .map_err(|e| format!("Git could not read the review snapshot: {e}"))?;
-        if !blob.status.success()
-            || blob.stdout.len() > MAX_FILE_BYTES
-            || is_binary(&blob.stdout, 8192)
-        {
-            continue;
+        specs.push(format!("{}:{path}", target.head));
+        paths_kept.push(path);
+    }
+    for_each_blob(repo, &specs, |index, blob| {
+        if blob.len() > MAX_FILE_BYTES || is_binary(blob, 8192) {
+            return Ok(true);
         }
-        for line in marker_lines(&blob.stdout) {
+        for line in marker_lines(blob) {
             hits.push(Hit {
-                path: path.clone(),
+                path: paths_kept[index].clone(),
                 line,
                 rule: "conflict-marker".into(),
                 remedy: None,
             });
         }
-    }
+        Ok(true)
+    })?;
     Ok((hits, surfaces))
 }
 
@@ -1179,31 +1272,57 @@ fn is_compose(path: &str) -> bool {
         && (name.ends_with(".yml") || name.ends_with(".yaml"))
 }
 
-/// Text of the file at the outgoing revision, or None when it is binary,
-/// oversized or not a regular file.
-fn blob_text(repo: &str, target: &Target, path: &str) -> Result<Option<String>, String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["cat-file", "blob", &format!("{}:{path}", target.head)])
-        .output()
-        .map_err(|e| format!("Git could not read the review snapshot: {e}"))?;
-    let raw = output.stdout;
-    if raw.is_empty() || is_binary(&raw, 8000) || raw.len() > MAX_SCAN_BYTES {
-        return Ok(None);
-    }
-    Ok(Some(String::from_utf8_lossy(&raw).into_owned()))
-}
-
-/// (added, removed) line lists for one path, numbered at head and base. A
-/// snapshot scan has no base: the caller reads the blob instead.
 /// Added and removed lines of one file's diff, each numbered.
 type DiffLines = (Vec<(u64, String)>, Vec<(u64, String)>);
 
-fn diff_lines(repo: &str, target: &Target, path: &str) -> Result<Option<DiffLines>, String> {
-    if target.scope != "range" {
-        return Ok(None);
+/// `git` quotes a diff-header path C-style only when it cannot print it
+/// raw (control, non-ASCII, quotes). Undo exactly that quoting.
+fn unquote_git_path(raw: &str) -> String {
+    let raw = raw.trim();
+    if !(raw.starts_with('"') && raw.ends_with('"') && raw.len() >= 2) {
+        return raw.to_string();
     }
+    let mut out = Vec::new();
+    let mut chars = raw[1..raw.len() - 1].chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.extend_from_slice(c.to_string().as_bytes());
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push(b'\n'),
+            Some('t') => out.push(b'\t'),
+            Some('r') => out.push(b'\r'),
+            Some('a') => out.push(0x07),
+            Some('b') => out.push(0x08),
+            Some('f') => out.push(0x0c),
+            Some('v') => out.push(0x0b),
+            Some('\\') => out.push(b'\\'),
+            Some('"') => out.push(b'"'),
+            Some(d @ '0'..='7') => {
+                let mut value = d.to_digit(8).unwrap_or(0);
+                for _ in 0..2 {
+                    match chars.next().and_then(|c| c.to_digit(8)) {
+                        Some(digit) => value = value * 8 + digit,
+                        None => break,
+                    }
+                }
+                out.push(value as u8);
+            }
+            Some(other) => out.extend_from_slice(other.to_string().as_bytes()),
+            None => {}
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// (added, removed) per path across the whole range - one `git diff` for
+/// every file instead of one process per path. Same numbering the per-path
+/// reader used: added lines numbered at head, removed at base.
+fn range_diff(
+    repo: &str,
+    target: &Target,
+) -> Result<std::collections::HashMap<String, DiffLines>, String> {
     let output = git(
         repo,
         &[
@@ -1213,34 +1332,90 @@ fn diff_lines(repo: &str, target: &Target, path: &str) -> Result<Option<DiffLine
             "--unified=0",
             target.base.as_deref().unwrap_or(EMPTY_TREE),
             &target.head,
-            "--",
-            path,
         ],
     )?;
-    let mut added = Vec::new();
-    let mut removed = Vec::new();
+    let mut diffs: std::collections::HashMap<String, DiffLines> = Default::default();
+    let mut path: Option<String> = None;
+    let mut deleted_from: Option<String> = None;
+    let mut in_hunk = false;
     let (mut old_line, mut new_line) = (0u64, 0u64);
     let header = Regex::new(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@").unwrap();
     for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if line.starts_with("diff --git ") {
+            in_hunk = false;
+            path = None;
+            deleted_from = None;
+            continue;
+        }
+        if !in_hunk {
+            if let Some(rest) = line.strip_prefix("--- ") {
+                if rest != "/dev/null" {
+                    deleted_from = Some(unquote_git_path(rest.strip_prefix("a/").unwrap_or(rest)));
+                }
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix("+++ ") {
+                path = if rest == "/dev/null" {
+                    deleted_from.take()
+                } else {
+                    Some(unquote_git_path(rest.strip_prefix("b/").unwrap_or(rest)))
+                };
+                if let Some(p) = &path {
+                    diffs.entry(p.clone()).or_default();
+                }
+                continue;
+            }
+        }
         if line.starts_with("@@ ") {
+            in_hunk = true;
             if let Some(found) = header.captures(line) {
                 old_line = found[1].parse().unwrap_or(0);
                 new_line = found[2].parse().unwrap_or(0);
             }
             continue;
         }
-        if line.starts_with("+++") || line.starts_with("---") {
-            continue;
-        }
+        let Some(p) = &path else { continue };
         if let Some(text) = line.strip_prefix('+') {
-            added.push((new_line, text.to_string()));
+            diffs
+                .entry(p.clone())
+                .or_default()
+                .0
+                .push((new_line, text.to_string()));
             new_line += 1;
         } else if let Some(text) = line.strip_prefix('-') {
-            removed.push((old_line, text.to_string()));
+            diffs
+                .entry(p.clone())
+                .or_default()
+                .1
+                .push((old_line, text.to_string()));
             old_line += 1;
         }
     }
-    Ok(Some((added, removed)))
+    Ok(diffs)
+}
+
+/// Text of every listed path at the outgoing revision - one batch pass.
+/// Binary, oversized and missing blobs are absent from the map.
+fn head_texts(
+    repo: &str,
+    target: &Target,
+    paths: &[String],
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let specs: Vec<String> = paths
+        .iter()
+        .map(|path| format!("{}:{path}", target.head))
+        .collect();
+    let mut texts: std::collections::HashMap<String, String> = Default::default();
+    for_each_blob(repo, &specs, |index, blob| {
+        if !blob.is_empty() && !is_binary(blob, 8000) && blob.len() <= MAX_SCAN_BYTES {
+            texts.insert(
+                paths[index].clone(),
+                String::from_utf8_lossy(blob).into_owned(),
+            );
+        }
+        Ok(true)
+    })?;
+    Ok(texts)
 }
 
 fn is_new_file(repo: &str, target: &Target, path: &str) -> bool {
@@ -1620,12 +1795,20 @@ fn checklist_audit(
         }
     }
 
+    // One batch read for every changed blob and one diff for the whole
+    // range replace the per-path subprocess pair this loop used to run.
+    let texts = head_texts(repo, target, &paths)?;
+    let diffs = if target.scope == "range" {
+        range_diff(repo, target)?
+    } else {
+        Default::default()
+    };
     for path in &paths {
-        let Some(text) = blob_text(repo, target, path)? else {
+        let Some(text) = texts.get(path) else {
             continue;
         };
-        let (added, removed) = match diff_lines(repo, target, path)? {
-            Some(pair) => pair,
+        let (added, removed) = match diffs.get(path) {
+            Some(pair) => pair.clone(),
             None => (
                 text.lines()
                     .enumerate()
@@ -1801,6 +1984,7 @@ fn regex_hits(repo: &str, target: &Target, rule: &Rule) -> Result<Vec<Hit>, Stri
             }
         }
         "revision-lines" => {
+            let mut files: Vec<(String, String)> = Vec::new();
             for record in git(repo, &["ls-tree", "-rz", &target.head])?
                 .stdout
                 .split(|byte| *byte == 0)
@@ -1815,60 +1999,75 @@ fn regex_hits(repo: &str, target: &Target, rule: &Rule) -> Result<Vec<Hit>, Stri
                 if !metadata.starts_with("100644 ") && !metadata.starts_with("100755 ") {
                     continue;
                 }
-                let blob = git(
-                    repo,
-                    &["cat-file", "blob", &format!("{}:{path}", target.head)],
-                )?;
-                if is_binary(&blob.stdout, 8192) || blob.stdout.len() > MAX_FILE_BYTES {
-                    continue;
+                if let Some(oid) = metadata.split_whitespace().nth(2) {
+                    files.push((path.to_string(), oid.to_string()));
                 }
-                for (index, line) in String::from_utf8_lossy(&blob.stdout).lines().enumerate() {
+            }
+            let oids: Vec<String> = files.iter().map(|(_, oid)| oid.clone()).collect();
+            for_each_blob(repo, &oids, |index, blob| {
+                if is_binary(blob, 8192) || blob.len() > MAX_FILE_BYTES {
+                    return Ok(true);
+                }
+                for (number, line) in String::from_utf8_lossy(blob).lines().enumerate() {
                     if pattern.is_match(line) {
                         hits.push(Hit {
-                            path: path.to_string(),
-                            line: index as u64 + 1,
+                            path: files[index].0.clone(),
+                            line: number as u64 + 1,
                             rule: rule.id.clone(),
                             remedy: None,
                         });
                     }
                 }
-            }
+                Ok(true)
+            })?;
         }
         _ => {
-            // added-lines / removed-lines: the per-path diff, numbered at the
+            // added-lines / removed-lines: the range diff, numbered at the
             // end of the range the line belongs to.
-            for path in outgoing_paths(repo, target)? {
-                let Some((added, removed)) = diff_lines(repo, target, &path)? else {
-                    // A snapshot has no base: every line counts as added.
-                    if target_name == "added-lines"
-                        && let Some(text) = blob_text(repo, target, &path)?
-                    {
-                        for (index, line) in text.lines().enumerate() {
+            let paths = outgoing_paths(repo, target)?;
+            let diffs = if target.scope == "range" {
+                range_diff(repo, target)?
+            } else {
+                Default::default()
+            };
+            // A snapshot has no base: every line counts as added.
+            let texts = if diffs.is_empty() && target_name == "added-lines" {
+                head_texts(repo, target, &paths)?
+            } else {
+                Default::default()
+            };
+            for path in &paths {
+                match diffs.get(path) {
+                    Some((added, removed)) => {
+                        let lines = if target_name == "added-lines" {
+                            added
+                        } else {
+                            removed
+                        };
+                        for (number, line) in lines {
                             if pattern.is_match(line) {
                                 hits.push(Hit {
                                     path: path.clone(),
-                                    line: index as u64 + 1,
+                                    line: *number,
                                     rule: rule.id.clone(),
                                     remedy: None,
                                 });
                             }
                         }
                     }
-                    continue;
-                };
-                let lines = if target_name == "added-lines" {
-                    &added
-                } else {
-                    &removed
-                };
-                for (number, line) in lines {
-                    if pattern.is_match(line) {
-                        hits.push(Hit {
-                            path: path.clone(),
-                            line: *number,
-                            rule: rule.id.clone(),
-                            remedy: None,
-                        });
+                    None => {
+                        if let Some(text) = texts.get(path) {
+                            for (index, line) in text.lines().enumerate() {
+                                if pattern.is_match(line) {
+                                    hits.push(Hit {
+                                        path: path.clone(),
+                                        line: index as u64 + 1,
+                                        rule: rule.id.clone(),
+                                        remedy: None,
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
             }

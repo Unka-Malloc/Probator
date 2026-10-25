@@ -157,16 +157,56 @@ fn request_from(args: &[String]) -> Result<Request, a4aa::AdapterError> {
 
 /// The audit is read-only: the only calls a permission prompt may approve
 /// are the checker's own `probator-audit` evidence and verdict tools — the
-/// tool surface the role itself declares. Every other prompt is cancelled,
-/// never approved on the operator's behalf.
+/// tool surface the role itself declares. Approval reads the tool call's
+/// identity fields, never prose a model can shape: a call that names the
+/// audit namespace may proceed, a call that names anything else refuses,
+/// and a call with no tool identity is cancelled.
 struct AuditPermissions;
+
+/// A tool identity names the audit surface when it is the canonical MCP
+/// tool name (`mcp__probator_audit__…`) or the bare server name followed by
+/// a separator rather than a longer identifier (`probator-audit: read`).
+fn is_audit_name(name: &str) -> bool {
+    name.starts_with("mcp__probator_audit__")
+        || name == "probator-audit"
+        || name
+            .strip_prefix("probator-audit")
+            .is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric() || c == '-'))
+}
+
+/// The identities the call itself claims: the schema's `name` field, the
+/// raw input's function name, and the title only when it is itself a tool
+/// identifier - a prose title is display text, not an identity.
+fn tool_identities(prompt: &PermissionPrompt) -> Vec<String> {
+    let call = &prompt.raw["toolCall"];
+    let mut names: Vec<String> = [
+        call["name"].as_str(),
+        call["rawInput"]["name"].as_str(),
+        call["raw_input"]["name"].as_str(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::to_string)
+    .collect();
+    if prompt.title.starts_with("mcp__") || is_audit_name(&prompt.title) {
+        names.push(prompt.title.clone());
+    }
+    names
+}
 
 #[async_trait::async_trait]
 impl PermissionHandler for AuditPermissions {
     async fn decide(&self, prompt: PermissionPrompt) -> PermissionDecision {
-        let audit_tool = prompt.title.contains("probator-audit")
-            || prompt.raw.to_string().contains("probator-audit");
-        if !audit_tool {
+        let mut audit = false;
+        for name in tool_identities(&prompt) {
+            if is_audit_name(&name) {
+                audit = true;
+            } else {
+                // A call that names any non-audit tool refuses outright.
+                return PermissionDecision::Cancelled;
+            }
+        }
+        if !audit {
             return PermissionDecision::Cancelled;
         }
         prompt
@@ -249,12 +289,17 @@ fn user_binding(checker: &str) -> Option<(PathBuf, Value)> {
 /// working directory, mechanisms, MCP servers, skills or agent mode. The open
 /// patch below forces the same fields; this check also refuses a fallback
 /// that would violate them before `va` spends a turn on it.
-fn restricted_profile(profile: &Value, stamped_mcp: Option<&Value>) -> bool {
+///
+/// `selector` is whether the open patch can project `permission` onto this
+/// candidate's lane. Where it cannot, the profile must declare `read-only`
+/// itself — a lane with no permission surface is not made read-only by
+/// silence.
+fn restricted_profile(profile: &Value, stamped_mcp: Option<&Value>, selector: bool) -> bool {
     if !profile.is_object() {
         return false;
     }
     let read_only = match profile.get("permission") {
-        None | Some(Value::Null) => true,
+        None | Some(Value::Null) => selector,
         Some(Value::String(permission)) => permission == "read-only",
         Some(_) => false,
     };
@@ -908,6 +953,7 @@ fn opened_from(
     role: &awp::Profile,
     admitted: &[String],
     primary: &str,
+    binding: &str,
     enforce_provider: bool,
 ) -> Result<Opened, a4aa::AdapterError> {
     let sidecar_id = result["sessionId"].as_str().unwrap_or("").to_string();
@@ -933,10 +979,14 @@ fn opened_from(
     // document's tool surface is the gate's own stamped server list — the
     // exact value this run wrote — so identical entries admit.
     let stamped = enforce_provider.then(|| lane_mcp_list(role));
-    if !restricted_profile(profile, stamped.as_ref()) {
+    let agent = profile["agent"].as_str().unwrap_or("");
+    // The open patch reaches only serve-lane candidates; every other lane
+    // must carry its own read-only declaration.
+    let selector = document["agents"][agent]["lane"].as_str() == Some("serve")
+        && permission_selector_supported(document, binding);
+    if !restricted_profile(profile, stamped.as_ref(), selector) {
         return Err(failure("audit_served_not_admitted", "audit/open"));
     }
-    let agent = profile["agent"].as_str().unwrap_or("");
     if !is_label(agent) || !lane_admitted(document, agent) {
         return Err(failure("audit_served_not_admitted", "audit/open"));
     }
@@ -1034,7 +1084,7 @@ async fn run(request: Request) -> a4aa::Result<Value> {
             // command whose native tools are not the audit allowlist.
             if admitted.iter().any(|id| {
                 let profile = &user["profiles"][id];
-                if !profile.is_object() || !restricted_profile(profile, None) {
+                if !profile.is_object() || !restricted_profile(profile, None, false) {
                     return true;
                 }
                 let agent = profile["agent"].as_str().unwrap_or("");
@@ -1252,6 +1302,7 @@ async fn run(request: Request) -> a4aa::Result<Value> {
                     role,
                     &admitted,
                     &primary,
+                    &binding,
                     enforce_provider,
                 ) {
                     Ok(session) => {

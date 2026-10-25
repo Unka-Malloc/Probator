@@ -453,7 +453,13 @@ fn findings_of_at(
         }
         findings.push(out);
     }
-    if findings.is_empty() && verdict != "pass" && waived_findings.is_empty() {
+    // A non-pass verdict with no blocking finding to show is not clean: the
+    // gate's consumers stop on high severity, so the refusal is synthesized
+    // from the report's own summary rather than trusted to be remembered.
+    if verdict != "pass"
+        && waived_findings.is_empty()
+        && !findings.iter().any(|finding| finding["severity"] == "high")
+    {
         let summary = report["summary"].as_str().unwrap_or("no summary");
         findings.push(high(format!("{name}: verdict {verdict} — {summary}")));
     }

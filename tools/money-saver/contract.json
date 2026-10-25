@@ -10,6 +10,7 @@
   "tools": {
     "name_prefix": "money",
     "context": ["inventory", "original_request", "list", "diff", "read", "find"],
+    "context_full_service": ["inventory", "original_request", "list", "read", "find"],
     "submit": true,
     "official_documents": true,
     "full_service": true,
@@ -18,6 +19,7 @@
     "revision_label": "staged",
     "descriptions": {
       "context": "Inspect immutable source. Start with inventory for review mode and scope. Commit mode requires every changed diff; full mode requires original_request and per-project coverage. read is {read_page_lines} lines with start; find/list use pattern glob and offset pagination. Full-mode find supports literal alternatives separated by |.",
+      "context_full_service": "Inspect the immutable snapshot. Start with inventory for mode and scope, then original_request (the review charter); list/find glob and page the snapshot, read returns numbered source. Full-mode find supports literal alternatives separated by |. No source execution or production access.",
       "submit": "Submit the final cost decision once. Follow the Money Saver policy's evidence and coverage contract.",
       "official_doc": "Fetch an official reference by catalog key, listed URL, or an https page on a host the catalog already names - an unlisted page on a catalog host is allowed; query and fragment are not. Cached once per review; offset pages through the same response.",
       "inventory_full_service": "Read original_request, then inspect every project. list/find accept glob pattern and offset; read returns numbered source. Submit project coverage including exact inspected entry points, data paths, clients and cancellation/retry paths. No source execution or production access."

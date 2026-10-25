@@ -8,7 +8,7 @@
 //! (`progress.jsonl`) that a resumed run replays instead of repaying.
 
 use crate::contract::Contract;
-use crate::evidence::{READ_PAGE_LINES, fnmatchcase};
+use crate::evidence::{READ_PAGE_LINES, fnmatch_regex};
 use crate::sanitize::sanitize_source;
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
@@ -415,11 +415,13 @@ impl FullEvidence {
             }
             "list" => {
                 let pattern = args["pattern"].as_str().unwrap_or("*");
+                let glob = fnmatch_regex(pattern)
+                    .map_err(|error| format!("invalid list pattern: {error}"))?;
                 let paths: Vec<&String> = self
                     .files
                     .keys()
                     .chain(self.aliases.keys())
-                    .filter(|path| fnmatchcase(path, pattern).unwrap_or(false))
+                    .filter(|path| glob.is_match(path))
                     .collect();
                 let offset = args["offset"].as_i64().unwrap_or(0).max(0) as usize;
                 let page: Vec<&String> =
@@ -487,9 +489,11 @@ impl FullEvidence {
                     .split('|')
                     .map(|needle| needle.to_lowercase())
                     .collect();
+                let glob = fnmatch_regex(&pattern)
+                    .unwrap_or_else(|_| fnmatch_regex("*").expect("the catch-all glob compiles"));
                 let mut selected: Vec<(&String, &str)> = Vec::new();
                 for (path, content) in self.files.iter() {
-                    if fnmatchcase(path, &pattern).unwrap_or(false) {
+                    if glob.is_match(path) {
                         selected.push((path, content.as_str().unwrap_or("")));
                     }
                 }
@@ -497,32 +501,33 @@ impl FullEvidence {
                     let origin = origin.as_str().unwrap_or("");
                     // An alias joins only when its origin was not itself
                     // selected - the evidence stays one copy.
-                    if fnmatchcase(alias, &pattern).unwrap_or(false)
+                    if glob.is_match(alias)
                         && !selected.iter().any(|(path, _)| path.as_str() == origin)
                         && let Some(content) = self.files.get(origin).and_then(Value::as_str)
                     {
                         selected.push((alias, content));
                     }
                 }
+                let offset = args["offset"].as_i64().unwrap_or(0).max(0) as usize;
+                // Only the returned page is materialized - a common word can
+                // match hundreds of thousands of lines.
                 let mut matches = Vec::new();
+                let mut total = 0usize;
                 for (path, content) in selected {
                     for (index, line) in content.lines().enumerate() {
                         let lowered = line.to_lowercase();
                         if needles.iter().any(|needle| lowered.contains(needle)) {
-                            matches.push(format!("{path}:{}: {line}", index + 1));
+                            if total >= offset && matches.len() < crate::evidence::FIND_PAGE {
+                                matches.push(format!("{path}:{}: {line}", index + 1));
+                            }
+                            total += 1;
                         }
                     }
                 }
-                let offset = args["offset"].as_i64().unwrap_or(0).max(0) as usize;
-                let page: Vec<&String> = matches
-                    .iter()
-                    .skip(offset)
-                    .take(crate::evidence::FIND_PAGE)
-                    .collect();
                 Ok(json!({
-                    "matches": page,
-                    "total": matches.len(),
-                    "next_offset": if offset + crate::evidence::FIND_PAGE < matches.len() {
+                    "matches": matches,
+                    "total": total,
+                    "next_offset": if offset + crate::evidence::FIND_PAGE < total {
                         Value::from(offset + crate::evidence::FIND_PAGE)
                     } else {
                         Value::Null

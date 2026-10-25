@@ -924,22 +924,17 @@ mod tests {
             .collect();
         assert_eq!(
             fallback_profiles,
-            [
-                "sample-checker-pi",
-                "sample-checker-dsh-commandcode",
-                "sample-checker-codex",
-                "sample-checker-dsh-deepseek"
-            ]
+            ["sample-checker-pi", "sample-checker-codex",]
         );
-        // An availability-scoped fallback carries its windows as host data.
-        assert_eq!(
-            fallbacks[1]["availability"]["windows"][0]["timezone"],
-            json!("UTC")
-        );
-        assert_eq!(
-            document["profiles"]["sample-checker-dsh-commandcode"]["model"].as_str(),
-            Some("[\"command-code\",\"deepseek/deepseek-v4.1-flash\"]")
-        );
+        // Every packaged profile declares the read-only posture its lane
+        // either enforces natively or receives through the audit projection.
+        for (id, profile) in document["profiles"].as_object().unwrap() {
+            assert_eq!(
+                profile["permission"],
+                json!("read-only"),
+                "packaged profile {id} must declare read-only"
+            );
+        }
         // The primary checker profile arms the engine's audit tool surface.
         assert_eq!(
             document["profiles"]["sample-checker"]["mcpServers"][0]["name"],
@@ -979,12 +974,7 @@ mod tests {
                 .iter()
                 .map(|f| f.profile())
                 .collect::<Vec<_>>(),
-            [
-                "sample-checker-pi",
-                "sample-checker-dsh-commandcode",
-                "sample-checker-codex",
-                "sample-checker-dsh-deepseek"
-            ]
+            ["sample-checker-pi", "sample-checker-codex"]
         );
         // The written file round-trips through the same path the runner uses.
         let target = dir.join("target");

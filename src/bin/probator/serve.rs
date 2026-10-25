@@ -82,18 +82,10 @@ impl Server {
         } else {
             None
         };
-        let projects = if full.is_some() {
-            serde_json::from_str::<Value>(
-                &std::fs::read_to_string(run_dir.join("snapshot.json"))
-                    .map_err(|error| format!("snapshot.json: {error}"))?,
-            )
-            .map_err(|error| format!("snapshot.json: {error}"))?["projects"]
-                .as_object()
-                .map(|projects| projects.keys().cloned().collect())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        let projects = full
+            .as_ref()
+            .map(FullEvidence::projects)
+            .unwrap_or_default();
         Ok(Server {
             contract,
             evidence,
@@ -123,6 +115,26 @@ impl Server {
     fn dispatch(&mut self, tool: &str, args: &Value) -> Result<Value, String> {
         let prefix = self.contract.tools.name_prefix.clone();
         if tool == format!("{prefix}_context") {
+            // The declared verb list is the capability boundary: an operation
+            // the contract does not offer refuses before it is served, so the
+            // manifest and the runtime stay one authority.
+            let verbs = if self.full.is_some() {
+                self.contract
+                    .tools
+                    .context_full_service
+                    .as_deref()
+                    .unwrap_or(self.contract.tools.context.as_slice())
+            } else {
+                self.contract.tools.context.as_slice()
+            };
+            let operation = args["operation"].as_str().unwrap_or("");
+            if !verbs.iter().any(|verb| verb == operation) {
+                return Err(if self.full.is_some() {
+                    format!("Full reviews use {}", verbs.join("/"))
+                } else {
+                    "Unknown context operation".to_string()
+                });
+            }
             if let Some(full) = &mut self.full {
                 return full.context(&self.contract, self.catalog.as_ref(), args);
             }

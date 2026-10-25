@@ -1,31 +1,5 @@
 {
   "agents": {
-    "dsh": {
-      "id": "dsh",
-      "clientName": "DeepSeek Harness",
-      "lane": "acp",
-      "mcp_servers": [],
-      "prefer_load": false,
-      "auth_key": null,
-      "command": {
-        "program": {
-          "resolve": [
-            "dsh",
-            "{home}/.local/bin/dsh"
-          ]
-        },
-        "args": [
-          "acp"
-        ],
-        "cwd": null,
-        "env": {
-          "inheritAll": {
-            "set": {}
-          }
-        }
-      },
-      "maxOutputBytes": null
-    },
     "opencode": {
       "id": "opencode",
       "lane": "acp",
@@ -413,31 +387,14 @@
           ],
           "env": []
         }
-      ]
+      ],
+      "permission": "read-only"
     },
     "{checker}-pi": {
       "agent": "pi",
       "model": "openai/gpt-6-luna",
-      "effort": "max"
-    },
-    "{checker}-dsh-commandcode": {
-      "agent": "dsh",
-      "model": "[\"command-code\",\"deepseek/deepseek-v4.1-flash\"]",
       "effort": "max",
-      "mcpServers": [
-        {
-          "name": "probator-audit",
-          "command": "{home}/.local/bin/probator",
-          "args": [
-            "serve",
-            "--contract",
-            "{home}/.local/share/probator/profiles/{checker}/plugins/{checker}/contract.json",
-            "--run",
-            "."
-          ],
-          "env": []
-        }
-      ]
+      "permission": "read-only"
     },
     "{checker}-codex": {
       "agent": "codex",
@@ -456,26 +413,8 @@
           ],
           "env": []
         }
-      ]
-    },
-    "{checker}-dsh-deepseek": {
-      "agent": "dsh",
-      "model": "[\"deepseek-official\",\"deepseek-flash\"]",
-      "effort": "max",
-      "mcpServers": [
-        {
-          "name": "probator-audit",
-          "command": "{home}/.local/bin/probator",
-          "args": [
-            "serve",
-            "--contract",
-            "{home}/.local/share/probator/profiles/{checker}/plugins/{checker}/contract.json",
-            "--run",
-            "."
-          ],
-          "env": []
-        }
-      ]
+      ],
+      "permission": "read-only"
     }
   },
   "bindings": {
@@ -483,69 +422,7 @@
       "profile": "{checker}",
       "fallbacks": [
         "{checker}-pi",
-        {
-          "profile": "{checker}-dsh-commandcode",
-          "availability": {
-            "windows": [
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "00:00",
-                "to": "01:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "04:00",
-                "to": "06:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "10:00",
-                "to": "00:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "sat,sun",
-                "from": "00:00",
-                "to": "00:00",
-                "timezone": "UTC"
-              }
-            ]
-          }
-        },
-        "{checker}-codex",
-        {
-          "profile": "{checker}-dsh-deepseek",
-          "availability": {
-            "windows": [
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "00:00",
-                "to": "01:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "04:00",
-                "to": "06:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "10:00",
-                "to": "00:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "sat,sun",
-                "from": "00:00",
-                "to": "00:00",
-                "timezone": "UTC"
-              }
-            ]
-          }
-        }
+        "{checker}-codex"
       ]
     }
   },
