@@ -33,7 +33,6 @@ pub struct Target {
     /// The pushed ref this range publishes, when it has one.
     pub ref_: Option<String>,
     pub scope: String,
-    pub fallback: String,
 }
 
 pub struct Hit {
@@ -62,7 +61,6 @@ impl Target {
             "head": self.head,
             "ref": self.ref_,
             "scope": self.scope,
-            "fallback": self.fallback,
         })
     }
 
@@ -74,7 +72,6 @@ impl Target {
             head: value["head"].as_str()?.to_string(),
             ref_: value["ref"].as_str().map(str::to_string),
             scope: value["scope"].as_str()?.to_string(),
-            fallback: value["fallback"].as_str()?.to_string(),
         })
     }
 }
@@ -84,7 +81,6 @@ impl Target {
 pub struct Summary {
     pub label: String,
     pub scope: String,
-    pub fallback: String,
     pub status: String,
     pub hits: Vec<Hit>,
     pub surfaces: Option<Vec<Hit>>,
@@ -96,7 +92,6 @@ impl Summary {
         let mut summary = json!({
             "label": self.label,
             "scope": self.scope,
-            "fallback": self.fallback,
             "status": self.status,
             "findings": self.hits.len(),
             "hits": self.hits.iter().map(Hit::to_json).collect::<Vec<_>>(),
@@ -134,7 +129,7 @@ pub(crate) fn shared_evidence_path() -> Option<PathBuf> {
 /// rename, so a cache miss is the only failure mode - never a torn document.
 fn evidence_entry(path: &Path, key: &str) -> PathBuf {
     path.with_extension("d")
-        .join(format!("{}.json", crate::seal::sha256_hex(key)))
+        .join(format!("{}.json", crate::util::sha256(key)))
 }
 
 pub(crate) fn evidence_get(path: &Path, key: &str) -> Option<Value> {
@@ -157,7 +152,7 @@ pub(crate) fn evidence_store(path: &Path, key: &str, value: Value) {
     let tmp = dir.join(format!(
         ".tmp-{}-{}",
         std::process::id(),
-        crate::seal::sha256_hex(key)
+        crate::util::sha256(key)
     ));
     let body = serde_json::to_string(&value).unwrap_or_default();
     if std::fs::write(&tmp, body).is_ok() {
@@ -358,14 +353,9 @@ fn withheld_names(path: Option<&PathBuf>, repo_slug: &str) -> Vec<String> {
 }
 
 fn default_withheld_path() -> PathBuf {
-    let base = std::env::var("XDG_CONFIG_HOME")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(".config")
-        });
-    base.join("probator").join("withheld-names.txt")
+    crate::util::config_dir()
+        .join("probator")
+        .join("withheld-names.txt")
 }
 
 /// Every finding in the revision, as path/line/rule. Neither check ever
@@ -403,7 +393,7 @@ fn clean_audit(repo: &str, target: &Target, opts: &Opts) -> Result<(String, Vec<
             parts.push_str(name);
             parts.push('\u{0}');
         }
-        format!("scan/{}", crate::seal::sha256_hex(&parts))
+        format!("scan/{}", crate::util::sha256(&parts))
     };
     if let Some(cached) = evidence_get(&cache, &key) {
         let why = cached["why"].as_str().unwrap_or_default().to_string();
@@ -614,14 +604,9 @@ fn clean_audit_scan(
 /// upstream naming a downstream publishes that repository's product plan
 /// before the downstream has shipped anything on its own.
 fn default_deps_path() -> PathBuf {
-    let base = std::env::var("XDG_CONFIG_HOME")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(".config")
-        });
-    base.join("probator").join("repo-deps.txt")
+    crate::util::config_dir()
+        .join("probator")
+        .join("repo-deps.txt")
 }
 
 /// One mapped repository: canonical name, the aliases documents actually
@@ -1507,8 +1492,6 @@ static PROTECTED_IGNORE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static FROM_LINE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^\s*FROM\s+(\S+)(?:\s+AS\s+(\S+))?\s*$").unwrap());
-static SUPPRESS_ALLOW: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"gv-allow:([A-Za-z0-9/_-]+)").unwrap());
 static WILDCARD_ORIGIN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"(?i)allow_origins\s*=\s*\[\s*["']\*["']\s*\]|Access-Control-Allow-Origin\s*:\s*\*"#,
@@ -1685,28 +1668,16 @@ fn checklist_audit(
                         continue;
                     }
                     if rule.pattern.is_match(line) {
-                        // `gv-allow:<rule-id>` on the same line suppresses a
-                        // blocking hit where a documented compensating control
-                        // exists (e.g. SPKI pinning instead of CA rejection).
-                        // Suppressed hits stay visible as notices, never hidden.
-                        let suppressed = SUPPRESS_ALLOW
-                            .captures_iter(line)
-                            .any(|allow| &allow[1] == rule.rule);
-                        if suppressed {
-                            surfaces.push(Hit {
-                                path: path.clone(),
-                                line: *number,
-                                rule: format!("suppressed/{}", rule.rule),
-                                remedy: remedy(rule.rule),
-                            });
-                        } else {
-                            group.sink(&mut regressions, &mut surfaces).push(Hit {
-                                path: path.clone(),
-                                line: *number,
-                                rule: rule.rule.into(),
-                                remedy: remedy(rule.rule),
-                            });
-                        }
+                        // The reviewed tree carries no suppression token: a
+                        // comment on the offending line must never soften a
+                        // blocking rule. Exemptions live only in the signed
+                        // rulings ledger, which candidates cannot write.
+                        group.sink(&mut regressions, &mut surfaces).push(Hit {
+                            path: path.clone(),
+                            line: *number,
+                            rule: rule.rule.into(),
+                            remedy: remedy(rule.rule),
+                        });
                         break;
                     }
                 }
@@ -1994,7 +1965,6 @@ pub fn audit(
     Ok(Summary {
         label: target.label.clone(),
         scope: target.scope.clone(),
-        fallback: target.fallback.clone(),
         status,
         hits,
         surfaces: if with_surfaces { surfaces } else { None },
@@ -2121,7 +2091,6 @@ mod tests {
             head: "HEAD".into(),
             ref_: None,
             scope: String::new(),
-            fallback: String::new(),
         };
         let hits = deps_audit(
             dir.to_str().unwrap(),
@@ -2264,7 +2233,6 @@ mod tests {
             base,
             head,
             ref_: None,
-            fallback: String::new(),
         };
         (CaseDir(root), target)
     }
@@ -2335,7 +2303,6 @@ mod tests {
             base: Some(base),
             head,
             ref_: None,
-            fallback: String::new(),
         }
     }
 
@@ -2384,11 +2351,11 @@ mod tests {
         );
     }
 
-    /// `gv-allow:<rule>` demotes a blocking security hit into a surfaced
-    /// notice - visible, never hidden - while the same line unsuppressed stays
-    /// a regression.
+    /// A suppression token on the offending line must never soften a
+    /// blocking rule: both lines regress, token or not. Exemptions live
+    /// only in the signed rulings ledger candidates cannot write.
     #[test]
-    fn gv_allow_demotes_a_blocking_hit_to_a_visible_surface() {
+    fn an_inline_suppression_token_does_not_demote_a_blocking_hit() {
         let guard = CaseDir(std::env::temp_dir().join(format!(
             "gv-allow-{}-{}",
             std::process::id(),
@@ -2426,23 +2393,20 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join(", ")
         };
-        assert!(
-            surfaces.iter().any(|h| {
-                h.rule == "suppressed/runtime/tls-verification-disabled"
-                    && h.path == "suppressed.py"
-            }),
-            "the suppression is a visible surface: {}",
-            seen(&surfaces)
-        );
         assert_eq!(
             regressions
                 .iter()
                 .filter(|h| h.rule == "runtime/tls-verification-disabled")
                 .map(|h| h.path.as_str())
                 .collect::<Vec<_>>(),
-            ["raw.py"],
-            "only the unsuppressed line regresses: {}",
+            ["raw.py", "suppressed.py"],
+            "the token line regresses exactly like the plain one: {}",
             seen(&regressions)
+        );
+        assert!(
+            !surfaces.iter().any(|h| h.rule.starts_with("suppressed/")),
+            "no suppressed surface may exist: {}",
+            seen(&surfaces)
         );
     }
 

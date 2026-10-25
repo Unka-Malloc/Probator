@@ -288,8 +288,10 @@ impl Evidence {
         Value::Object(reply)
     }
 
-    /// `list`: the tree's paths matching a glob, in ls-tree order.
-    pub fn list(&self, pattern: Option<&str>) -> Result<Vec<String>, String> {
+    /// `list`: the tree's paths matching a glob, in ls-tree order, paged in
+    /// match order — the same `{matches, more}` shape `find` returns, since
+    /// the manifest promises offset pagination on both.
+    pub fn list(&self, pattern: Option<&str>, offset: Option<i64>) -> Result<Value, String> {
         let pattern = pattern.unwrap_or("*");
         let mut matches = Vec::new();
         for path in &self.order {
@@ -297,7 +299,7 @@ impl Evidence {
                 matches.push(path.clone());
             }
         }
-        Ok(matches)
+        Ok(page(&matches, offset))
     }
 
     /// `diff`: the change to one path, paged in character order. Pages must be
@@ -401,9 +403,10 @@ impl Evidence {
         Ok(json!({"total_lines": lines.len(), "content": content}))
     }
 
-    /// `find`: a literal search over the review object, sanitized. Matches in
-    /// paths the contract excludes are dropped, not served.
-    pub fn find(&self, text: &str) -> Result<Value, String> {
+    /// `find`: a literal search over the review object, sanitized, paged in
+    /// match order. Matches in paths the contract excludes are dropped, not
+    /// served.
+    pub fn find(&self, text: &str, offset: Option<i64>) -> Result<Value, String> {
         if text.is_empty() {
             return Err("A literal search string is required".to_string());
         }
@@ -432,11 +435,20 @@ impl Evidence {
             }
             matches.push(sanitize_source(&format!("{path}:{line}")));
         }
-        Ok(json!({
-            "matches": &matches[..matches.len().min(FIND_PAGE)],
-            "more": matches.len() > FIND_PAGE,
-        }))
+        Ok(page(&matches, offset))
     }
+}
+
+/// One page of a paged reply: `FIND_PAGE` entries after `offset`, with
+/// `more` telling the caller another page exists. A negative offset reads
+/// as zero — the first page — the same way `diff` treats it.
+fn page(matches: &[String], offset: Option<i64>) -> Value {
+    let start = offset.unwrap_or(0).max(0) as usize;
+    let tail = &matches[start.min(matches.len())..];
+    json!({
+        "matches": &tail[..tail.len().min(FIND_PAGE)],
+        "more": tail.len() > FIND_PAGE,
+    })
 }
 
 #[cfg(test)]
@@ -667,11 +679,30 @@ mod tests {
     fn list_globs_the_tree() {
         let fixture = fixture();
         let evidence = Evidence::load(&fixture.run).unwrap();
-        let all = evidence.list(None).unwrap();
-        assert!(all.contains(&"src/main.rs".to_string()));
-        assert!(all.contains(&"docs/guide.md".to_string()));
-        assert_eq!(evidence.list(Some("*.rs")).unwrap().len(), 2);
-        assert_eq!(evidence.list(Some("")).unwrap(), Vec::<String>::new());
+        let all = evidence.list(None, None).unwrap();
+        let matches = all["matches"].as_array().unwrap();
+        assert!(matches.contains(&json!("src/main.rs")));
+        assert!(matches.contains(&json!("docs/guide.md")));
+        assert_eq!(
+            evidence.list(Some("*.rs"), None).unwrap()["matches"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(evidence.list(Some(""), None).unwrap()["matches"], json!([]));
+        // `offset` pages the match list the contract promises: the second
+        // page of the `*.rs` glob skips the first match.
+        let paged = evidence.list(Some("*.rs"), Some(1)).unwrap();
+        assert_eq!(paged["matches"].as_array().unwrap().len(), 1);
+        assert_eq!(paged["more"], false);
+        // `find` honors the same offset.
+        let first = evidence.find("héllo", None).unwrap();
+        let next = evidence.find("héllo", Some(1)).unwrap();
+        assert_eq!(
+            next["matches"].as_array().unwrap().len() + 1,
+            first["matches"].as_array().unwrap().len()
+        );
     }
 
     #[test]
@@ -777,7 +808,7 @@ mod tests {
     fn find_is_literal_sanitized_and_paged() {
         let fixture = fixture();
         let evidence = Evidence::load(&fixture.run).unwrap();
-        let hits = evidence.find("héllo").unwrap();
+        let hits = evidence.find("héllo", None).unwrap();
         assert_eq!(
             hits["matches"],
             json!([
@@ -787,17 +818,17 @@ mod tests {
             ])
         );
         assert_eq!(hits["more"], false);
-        let many = evidence.find("needle").unwrap();
+        let many = evidence.find("needle", None).unwrap();
         assert_eq!(many["matches"].as_array().unwrap().len(), super::FIND_PAGE);
         assert_eq!(many["more"], true);
         // The URL in the guide is sanitized out of the match text.
-        let guide = evidence.find("docs.example.com").unwrap();
+        let guide = evidence.find("docs.example.com", None).unwrap();
         assert_eq!(
             guide["matches"],
             json!(["docs/guide.md:3:see https://[ENDPOINT]"])
         );
         assert_eq!(
-            evidence.find("").unwrap_err(),
+            evidence.find("", None).unwrap_err(),
             "A literal search string is required"
         );
     }

@@ -6,7 +6,6 @@
         {
           "label": "case clean-credentials",
           "scope": "range",
-          "fallback": "",
           "status": "credential-shape",
           "findings": 4,
           "hits": [
@@ -43,7 +42,6 @@
         {
           "label": "case clean-withheld",
           "scope": "range",
-          "fallback": "",
           "status": "withheld-name",
           "findings": 1,
           "hits": [
@@ -65,7 +63,6 @@
         {
           "label": "case clean-withheld-except",
           "scope": "range",
-          "fallback": "",
           "status": "clean",
           "findings": 0,
           "hits": [],
@@ -81,7 +78,6 @@
         {
           "label": "case clean-none",
           "scope": "range",
-          "fallback": "",
           "status": "clean",
           "findings": 0,
           "hits": [],
@@ -97,7 +93,6 @@
         {
           "label": "case maintainer-conflict",
           "scope": "range",
-          "fallback": "",
           "status": "refused",
           "findings": 3,
           "hits": [
@@ -130,7 +125,6 @@
         {
           "label": "case maintainer-junk",
           "scope": "range",
-          "fallback": "",
           "status": "refused",
           "findings": 3,
           "hits": [
@@ -163,7 +157,6 @@
         {
           "label": "case maintainer-binary",
           "scope": "range",
-          "fallback": "",
           "status": "clean",
           "findings": 0,
           "hits": [],
@@ -180,7 +173,6 @@
         {
           "label": "case maintainer-clean",
           "scope": "range",
-          "fallback": "",
           "status": "clean",
           "findings": 0,
           "hits": [],
@@ -197,7 +189,6 @@
         {
           "label": "case security-ci",
           "scope": "range",
-          "fallback": "",
           "status": "regression",
           "findings": 4,
           "hits": [
@@ -239,7 +230,6 @@
         {
           "label": "case security-dockerfile",
           "scope": "range",
-          "fallback": "",
           "status": "regression",
           "findings": 5,
           "hits": [
@@ -287,7 +277,6 @@
         {
           "label": "case security-removals",
           "scope": "range",
-          "fallback": "",
           "status": "regression",
           "findings": 2,
           "hits": [
@@ -317,7 +306,6 @@
         {
           "label": "case security-surfaces",
           "scope": "range",
-          "fallback": "",
           "status": "clean",
           "findings": 0,
           "hits": [],
@@ -395,7 +383,6 @@
         {
           "label": "case security-lockfile",
           "scope": "range",
-          "fallback": "",
           "status": "regression",
           "findings": 1,
           "hits": [
@@ -419,7 +406,6 @@
         {
           "label": "case security-cors",
           "scope": "range",
-          "fallback": "",
           "status": "regression",
           "findings": 1,
           "hits": [
@@ -443,7 +429,6 @@
         {
           "label": "case security-runtime",
           "scope": "range",
-          "fallback": "",
           "status": "regression",
           "findings": 2,
           "hits": [
@@ -473,7 +458,6 @@
         {
           "label": "case security-skipped-and-clean",
           "scope": "range",
-          "fallback": "",
           "status": "clean",
           "findings": 0,
           "hits": [],
@@ -490,7 +474,6 @@
         {
           "label": "case security-credential-file",
           "scope": "range",
-          "fallback": "",
           "status": "regression",
           "findings": 1,
           "hits": [
@@ -514,7 +497,6 @@
         {
           "label": "case security-snapshot",
           "scope": "snapshot",
-          "fallback": "",
           "status": "regression",
           "findings": 1,
           "hits": [
@@ -538,7 +520,6 @@
         {
           "label": "case maintainer-snapshot",
           "scope": "snapshot",
-          "fallback": "",
           "status": "refused",
           "findings": 3,
           "hits": [

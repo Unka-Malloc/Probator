@@ -6,24 +6,17 @@
 use serde_json::Value;
 use std::path::Path;
 
-pub(crate) fn sha256_hex(text: &str) -> String {
-    use sha2::Digest as _;
-    sha2::Sha256::digest(text.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
 /// `sha256(seal_prev + "\n" + canonical document)`: the canonical content is
 /// the document itself minus the seal fields, serialized the way it is
-/// written to disk.
+/// written to disk. The digest itself lives in `util::sha256` — one
+/// implementation for every hash this crate makes.
 pub fn seal(seal_prev: &str, document: &Value) -> String {
     let mut payload = document.clone();
     if let Some(object) = payload.as_object_mut() {
         object.remove("seal");
         object.remove("seal_prev");
     }
-    sha256_hex(&format!(
+    crate::util::sha256(&format!(
         "{seal_prev}\n{}",
         serde_json::to_string(&payload).unwrap_or_default()
     ))

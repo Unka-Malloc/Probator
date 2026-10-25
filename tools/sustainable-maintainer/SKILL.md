@@ -72,8 +72,7 @@ in the Probator repository.
 
 - `git push --no-verify` bypasses the `pre-push` hook; the unbypassable
   boundary is Probator's own `pr` path.
-- A branch with nothing published to compare against is scanned whole and the
-  receipt records why.
+- A branch with nothing published to compare against is scanned whole.
 - The semantic stage runs once per range; a range that already passed is
   reused rather than paid for twice — unless the judged items changed since,
   because a receipt written under an earlier contract did not answer the

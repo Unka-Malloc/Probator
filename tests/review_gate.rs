@@ -655,7 +655,7 @@ fn signed_ledger_for(root: &Path, file: &str, line: u64) -> (PathBuf, PathBuf) {
     let anchor = root.join("ruling-anchor");
     std::fs::write(
         &anchor,
-        format!("gitvault-config {}", public.trim_end_matches('\n')),
+        format!("rulings {}", public.trim_end_matches('\n')),
     )
     .unwrap();
     let ledger = root.join("objections.toml");
@@ -670,7 +670,7 @@ fn signed_ledger_for(root: &Path, file: &str, line: u64) -> (PathBuf, PathBuf) {
         "-Y".as_ref(),
         "sign".as_ref(),
         "-n".as_ref(),
-        "gitvault-config".as_ref(),
+        "test-rulings".as_ref(),
         "-f".as_ref(),
         key.as_os_str(),
         ledger.as_os_str(),

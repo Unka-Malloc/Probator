@@ -678,7 +678,9 @@ impl Documents {
 
 #[cfg(test)]
 mod tests {
-    use super::{Documents, direct_url, is_fake_ip, is_public_ip, page_text, redirect_allowed, resolve};
+    use super::{
+        Documents, direct_url, is_fake_ip, is_public_ip, page_text, redirect_allowed, resolve,
+    };
     use serde_json::{Map, Value, json};
     use std::collections::HashSet;
     use std::io::{BufRead, BufReader, Write};

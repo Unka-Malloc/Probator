@@ -282,7 +282,9 @@ impl Server {
             "inventory" => Ok(self
                 .evidence
                 .inventory(&self.contract, self.catalog.as_ref())),
-            "list" => Ok(json!(self.evidence.list(args["pattern"].as_str())?)),
+            "list" => Ok(self
+                .evidence
+                .list(args["pattern"].as_str(), args["offset"].as_i64())?),
             "diff" => {
                 let path = args["path"].as_str().unwrap_or("");
                 if path.is_empty() {
@@ -302,7 +304,9 @@ impl Server {
                     &self.contract.tools.revision_label,
                 )
             }
-            "find" => self.evidence.find(args["text"].as_str().unwrap_or("")),
+            "find" => self
+                .evidence
+                .find(args["text"].as_str().unwrap_or(""), args["offset"].as_i64()),
             _ => Err("Unknown context operation".to_string()),
         }
     }

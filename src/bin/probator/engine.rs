@@ -1442,9 +1442,6 @@ fn review_target(
         report["review_items"] = json!(contract.domains);
         report["stage1"] =
             json!({"ranges": summaries.iter().map(stage1::Summary::to_json).collect::<Vec<_>>()});
-        if !target.fallback.is_empty() {
-            report["fallback"] = json!(target.fallback);
-        }
         // Seal the receipt into the run history's chain: `audited` reuses a
         // receipt only when the seal recomputes, so a hand-written
         // `report.json` must at least join the chain honestly - and a receipt

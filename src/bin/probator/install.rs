@@ -40,14 +40,9 @@ fn config_file() -> PathBuf {
     {
         return PathBuf::from(explicit);
     }
-    let base = std::env::var("XDG_CONFIG_HOME")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(".config")
-        });
-    base.join("probator").join("config.toml")
+    crate::util::config_dir()
+        .join("probator")
+        .join("config.toml")
 }
 
 /// The audit policy lives in its own signed file beside the routing table, so

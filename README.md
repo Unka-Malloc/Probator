@@ -13,9 +13,8 @@ its end, no blocking findings and no `unknown` coverage, and the submission
 is accepted exactly once. A reviewer that cannot complete the contract leaves
 the gate blocked; it cannot produce a passing receipt without the evidence.
 
-Probator began as the review engine embedded in a private git-gating tool;
-it is now an independent project with its own policy, receipts and release
-line.
+Probator is an independent project with its own policy, receipts and
+release line.
 
 ## Layout
 

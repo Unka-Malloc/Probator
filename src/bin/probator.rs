@@ -349,7 +349,6 @@ fn main() -> ExitCode {
                     base,
                     head,
                     ref_: None,
-                    fallback: String::new(),
                 };
                 let rules: &[contract::Rule] =
                     contract.stage1.as_ref().map_or(&[], |stage1| &stage1.rules);

@@ -100,7 +100,6 @@ fn snapshot(
         head,
         ref_,
         scope: "snapshot".to_string(),
-        fallback: String::new(),
     }
 }
 
@@ -359,7 +358,7 @@ pub fn ranges(repo: &str) -> Result<Vec<Target>, String> {
     };
     let key = format!(
         "ranges/{}",
-        crate::seal::sha256_hex(&format!(
+        crate::util::sha256(&format!(
             "{repo}\u{0}{}",
             serde_json::to_string(&vars).unwrap_or_default()
         ))

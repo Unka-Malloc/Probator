@@ -10,8 +10,10 @@
 //! signing the ledger belongs to the gate that holds the operator's key
 //! (its `objection` command); the ledger path and its verification anchor are
 //! supplied through `PROBATOR_RULINGS_LEDGER` and `PROBATOR_RULINGS_ANCHOR`.
-//! The signature namespace and principal stay the signer's values: a ledger
-//! signed by that command must verify here unchanged.
+//! The signature namespace is read from the signature itself — an SSHSIG
+//! blob embeds the namespace its signer declared — and the principal comes
+//! from the anchor, so a ledger signed by any signer verifies here
+//! unchanged and this public tree never names the signer.
 //!
 //! Two kinds of rulings:
 //!
@@ -29,11 +31,11 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Signature namespace and principal written by the configuration signer.
-/// Both stay at the signer's values so a ledger produced by the gate's
-/// `objection` command verifies here unchanged.
-const NAMESPACE: &str = "gitvault-config";
-const PRINCIPAL: &str = "gitvault-config";
+/// The principal written into a materialized allowed-signers file when the
+/// anchor is a bare public key. Any value works — it is checked against the
+/// file this binary writes, and the signature's own principal stays in the
+/// signer's files rather than being named here.
+const MATERIALIZED_PRINCIPAL: &str = "rulings";
 
 fn env_path(name: &str) -> Option<PathBuf> {
     std::env::var_os(name)
@@ -158,10 +160,71 @@ fn materialize_bare_anchor(text: &str) -> Result<TempAnchor, String> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        writeln!(file, "{PRINCIPAL} {line}")
+        writeln!(file, "{MATERIALIZED_PRINCIPAL} {line}")
             .map_err(|error| format!("cannot write a temporary anchor: {error}"))?;
     }
     Ok(temporary)
+}
+
+/// One u32-length-prefixed string out of an SSH wire blob.
+fn ssh_string<'a>(cursor: &mut &'a [u8]) -> Result<&'a [u8], String> {
+    let (len, rest) = cursor
+        .split_at_checked(4)
+        .ok_or_else(|| "truncated signature".to_string())?;
+    let len = u32::from_be_bytes(len.try_into().unwrap()) as usize;
+    let (value, rest) = rest
+        .split_at_checked(len)
+        .ok_or_else(|| "truncated signature".to_string())?;
+    *cursor = rest;
+    Ok(value)
+}
+
+/// The namespace an SSHSIG blob was signed under: the blob embeds it after
+/// the magic and version as the third length-prefixed string. Reading it
+/// from the signature keeps the signer's own namespace out of this tree —
+/// `ssh-keygen -Y verify` still checks the blob against the same value.
+fn signature_namespace(sig: &Path) -> Result<String, String> {
+    let blob =
+        std::fs::read(sig).map_err(|error| format!("cannot read {}: {error}", sig.display()))?;
+    // PEM armor wraps the raw blob in base64 between the BEGIN/END lines.
+    let body: String = blob
+        .iter()
+        .map(|byte| *byte as char)
+        .collect::<String>()
+        .lines()
+        .filter(|line| !line.starts_with("-----") && !line.trim().is_empty())
+        .collect();
+    use base64::Engine;
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(body.trim())
+        .map_err(|error| format!("signature is not valid base64: {error}"))?;
+    if raw.get(..6) != Some(b"SSHSIG") || raw.get(6..10) != Some(&1u32.to_be_bytes()[..]) {
+        return Err("not an SSHSIG v1 blob".to_string());
+    }
+    // SSHSIG(6) + u32 version + string pubkey + string namespace.
+    let mut cursor: &[u8] = raw
+        .get(10..)
+        .ok_or_else(|| "truncated signature".to_string())?;
+    ssh_string(&mut cursor)?; // publickey
+    let namespace = ssh_string(&mut cursor)?;
+    String::from_utf8(namespace.to_vec()).map_err(|_| "invalid namespace".to_string())
+}
+
+/// The principal to check against the anchor: the first principal named in
+/// an allowed-signers file, or the materialized one when the anchor is a
+/// bare key and this binary writes the file itself.
+fn anchor_principal(anchor_text: &str, bare: bool) -> Result<String, String> {
+    if bare {
+        return Ok(MATERIALIZED_PRINCIPAL.to_string());
+    }
+    anchor_text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .and_then(|line| line.split_whitespace().next())
+        .and_then(|principals| principals.split(',').next())
+        .map(str::to_string)
+        .ok_or_else(|| "anchor names no principal".to_string())
 }
 
 /// Verify the ledger's sidecar signature against the anchor, feeding the
@@ -174,9 +237,12 @@ fn verify_signed(data: &[u8], sig: &Path, anchor: &Path) -> Result<(), String> {
     if !sig.is_file() {
         return Err(format!("no signature sidecar at {}", sig.display()));
     }
+    let namespace = signature_namespace(sig)?;
     let anchor_text = std::fs::read_to_string(anchor)
         .map_err(|error| format!("cannot read {}: {error}", anchor.display()))?;
-    let temporary = if bare_public_key(&anchor_text) {
+    let bare = bare_public_key(&anchor_text);
+    let principal = anchor_principal(&anchor_text, bare)?;
+    let temporary = if bare {
         Some(materialize_bare_anchor(&anchor_text)?)
     } else {
         None
@@ -190,9 +256,9 @@ fn verify_signed(data: &[u8], sig: &Path, anchor: &Path) -> Result<(), String> {
         .arg("-f")
         .arg(verify_anchor)
         .arg("-I")
-        .arg(PRINCIPAL)
+        .arg(principal)
         .arg("-n")
-        .arg(NAMESPACE)
+        .arg(namespace)
         .arg("-s")
         .arg(sig)
         .stdin(Stdio::piped())
@@ -583,7 +649,7 @@ mod tests {
         let anchor = scratch.path(&format!("{name}.allowed"));
         std::fs::write(
             &anchor,
-            format!("{PRINCIPAL} {}", public.trim_end_matches('\n')),
+            format!("test-rulings {}", public.trim_end_matches('\n')),
         )
         .unwrap();
         let ledger = scratch.path(&format!("{name}.toml"));
@@ -592,7 +658,7 @@ mod tests {
             "-Y".as_ref(),
             "sign".as_ref(),
             "-n".as_ref(),
-            NAMESPACE.as_ref(),
+            "test-rulings".as_ref(),
             "-f".as_ref(),
             key.as_os_str(),
             ledger.as_os_str(),

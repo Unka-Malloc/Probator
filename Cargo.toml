@@ -20,9 +20,8 @@ path = "src/bin/probator-agent.rs"
 a4aa = "0.4.1"
 agents-with-profiles = { version = "0.2.0", default-features = false }
 async-trait = "0.1"
-anyhow = "1.0.104"
+
 base64 = "0.23.1"
-chacha20poly1305 = "0.11.0"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 hmac = "0.13.0"
 http = "1"
@@ -37,6 +36,5 @@ serde_json = { version = "1.0.151", features = ["preserve_order"] }
 sha2 = "0.11.1"
 toml = "1.1.6"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
-wait-timeout = "0.2.1"
 tokio = { version = "1", features = ["macros", "rt", "sync", "signal"] }
 pulldown-cmark = "0.13"

@@ -111,8 +111,7 @@ fn range_env(event: &str, detail: &Map<String, Value>) -> Vec<(&'static str, Str
             let scoped = (event == "release"
                 && env.iter().any(|(var, _)| *var == "PROBATOR_RELEASE_COMMIT"))
                 || (event == "pr" && env.iter().any(|(var, _)| *var == "PROBATOR_PR_HEAD"))
-                || (event == "pre-push"
-                    && env.iter().any(|(var, _)| *var == "PROBATOR_PUSH_REFS"));
+                || (event == "pre-push" && env.iter().any(|(var, _)| *var == "PROBATOR_PUSH_REFS"));
             env.push((
                 "PROBATOR_EVENT",
                 if scoped { event } else { "working-tree" }.to_string(),
@@ -1016,13 +1015,13 @@ mod tests {
         let anchor = dir.join("ruling-anchor");
         std::fs::write(
             &anchor,
-            format!("gitvault-config {}", public.trim_end_matches('\n')),
+            format!("rulings {}", public.trim_end_matches('\n')),
         )
         .unwrap();
         let ledger = dir.join("objections.toml");
         std::fs::write(&ledger, format!("[[ruling]]\n{body}")).unwrap();
         let signature = Command::new("ssh-keygen")
-            .args(["-Y", "sign", "-n", "gitvault-config", "-f"])
+            .args(["-Y", "sign", "-n", "test-rulings", "-f"])
             .arg(&key)
             .arg(&ledger)
             .output()

@@ -53,8 +53,8 @@ replace it.
 
 - `git push --no-verify` bypasses the `pre-push` hook; the unbypassable
   boundaries are Probator's own `pr` and `release` paths.
-- A release is judged as "everything since the previous release"; a first
-  release is scanned whole and the receipt records why.
+- Every release is judged as the whole tree at the release commit — exactly
+  like a first release; there is no "since the previous release" range.
 - The semantic stage runs once per range; a range that already passed is reused
   rather than paid for twice.
 
