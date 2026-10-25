@@ -15,7 +15,13 @@
   "severity": "blocking",
   "tools": {
     "name_prefix": "clean",
-    "context": ["inventory", "list", "diff", "read", "find"],
+    "context": [
+      "inventory",
+      "list",
+      "diff",
+      "read",
+      "find"
+    ],
     "submit": true,
     "descriptions": {
       "context": "Inspect the immutable outgoing range. Start with inventory, then diff every changed file to its end; read is {read_page_lines} lines with start; find is a literal search over the range. Credential containers are unavailable by design.",

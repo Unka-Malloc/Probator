@@ -468,14 +468,21 @@ fn lane_admitted(document: &Value, agent: &str) -> bool {
         .any(|lane| matches!(lane, "acp" | "serve" | "rpc"))
 }
 
-/// Whether every candidate a binding can serve runs on a lane that carries a
-/// per-session permission selector - today only the serve lane. RPC and ACP
-/// lanes reject a preset outright (`agent_permission_unsupported`), so
-/// forcing one there would make a healthy audit fail at `session/open`.
-/// Admission already required every candidate to declare `read-only`; on
-/// RPC/ACP the declaration reaches the runtime through the profile itself,
-/// while the serve lane needs it re-projected through this selector.
-fn binding_projects_permission(document: &Value, binding: &str) -> bool {
+/// How the selector-carrying lane surfaces in a binding's candidates:
+/// every candidate serves it, none do, or the binding mixes both. Only the
+/// serve lane advertises a per-session permission selector today; RPC and
+/// ACP lanes reject a preset outright (`agent_permission_unsupported`), so
+/// a mixed binding cannot be projected consistently — the shared open
+/// patch that a serve-lane candidate needs would make its sibling refuse
+/// `session/open`. `None` relies on the `read-only` declaration admission
+/// already required, which RPC/ACP profiles carry to the runtime directly.
+enum SelectorSurface {
+    All,
+    None,
+    Mixed,
+}
+
+fn selector_surface(document: &Value, binding: &str) -> SelectorSurface {
     let entry = &document["bindings"][binding];
     let mut profiles: Vec<&str> = Vec::new();
     if let Some(primary) = entry["profile"].as_str() {
@@ -488,13 +495,20 @@ fn binding_projects_permission(document: &Value, binding: &str) -> bool {
             .flatten()
             .filter_map(Value::as_str),
     );
-    !profiles.is_empty()
-        && profiles.iter().all(|profile| {
-            let agent = document["profiles"][*profile]["agent"]
+    let selector = profiles
+        .iter()
+        .filter(|profile| {
+            let agent = document["profiles"][**profile]["agent"]
                 .as_str()
                 .unwrap_or("");
             document["agents"][agent]["lane"].as_str() == Some("serve")
         })
+        .count();
+    match (selector, profiles.len()) {
+        (0, _) => SelectorSurface::None,
+        (all, total) if all == total && total > 0 => SelectorSurface::All,
+        _ => SelectorSurface::Mixed,
+    }
 }
 
 /// The fixed directories a Pi installation may live in. These are the roots
@@ -1274,12 +1288,19 @@ async fn run(request: Request) -> a4aa::Result<Value> {
         "skillReferences": [],
         "mode": null,
     });
-    // Every admissible candidate already declares `permission: "read-only"`;
-    // this stamp re-projects it only for lanes that carry a selector (serve).
-    // An RPC or ACP candidate would refuse the whole open on an unknown
-    // preset, and its profile declaration already reaches the runtime.
-    if binding_projects_permission(&document, &binding) {
-        patch["permission"] = json!("read-only");
+    // Every admissible candidate already declares `permission: "read-only"`.
+    // On lanes with a selector that declaration must also reach the session
+    // through the open patch; on RPC/ACP the profile carries it natively. A
+    // binding that mixes the two cannot be projected one way without
+    // breaking the other lane, so it refuses before `va` starts.
+    match selector_surface(&document, &binding) {
+        SelectorSurface::All => patch["permission"] = json!("read-only"),
+        SelectorSurface::None => {}
+        SelectorSurface::Mixed => {
+            return Err(failure("audit_binding_lanes_mixed", "agent/open").with_detail(
+                "binding mixes selector and non-selector lanes; no single open patch can project read-only to all candidates",
+            ));
+        }
     }
     let open_params = |resume: Option<&str>| {
         let mut params = json!({
@@ -1552,6 +1573,44 @@ mod tests {
         let mut denied = prompt(None, "audit", json!({"name": "mcp__probator_audit__read"}));
         denied.options = vec![("deny-1".into(), "Deny".into(), "deny_once".into())];
         assert!(matches!(decide(denied), PermissionDecision::Cancelled));
+    }
+
+    /// The lane surface decides how `read-only` is projected: all-serve
+    /// stamps the open patch, no-serve rides the profile declaration, and a
+    /// mixed binding is refused because one patch cannot satisfy both.
+    #[test]
+    fn a_mixed_lane_binding_is_refused_before_open() {
+        let document = |lanes: &[&str], fallbacks: &[&str]| {
+            let mut doc = json!({"agents": {}, "profiles": {}, "bindings": {}});
+            for (index, lane) in lanes.iter().enumerate() {
+                let agent = format!("a{index}");
+                doc["agents"][agent.clone()] = json!({"lane": lane});
+                doc["profiles"][format!("p{index}")] = json!({"agent": agent});
+            }
+            doc["bindings"]["audit"] = json!({
+                "profile": "p0",
+                "fallbacks": fallbacks.iter().map(|i| format!("p{i}")).collect::<Vec<_>>(),
+            });
+            doc
+        };
+        // p0 + p1 both serve.
+        assert!(matches!(
+            selector_surface(&document(&["serve", "serve"], &["1"]), "audit"),
+            SelectorSurface::All
+        ));
+        // p0 rpc + p1 rpc.
+        assert!(matches!(
+            selector_surface(&document(&["rpc", "rpc"], &["1"]), "audit"),
+            SelectorSurface::None
+        ));
+        // p0 serve with an rpc fallback - or an rpc primary serving a
+        // serve fallback - cannot take one consistent patch.
+        for lanes in [["serve", "rpc"], ["rpc", "serve"]] {
+            assert!(matches!(
+                selector_surface(&document(&lanes, &["1"]), "audit"),
+                SelectorSurface::Mixed
+            ));
+        }
     }
 
     /// Representative `permission/request` params run through the same

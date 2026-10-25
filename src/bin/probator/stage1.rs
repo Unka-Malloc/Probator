@@ -1347,11 +1347,17 @@ fn unquote_git_path(raw: &str) -> String {
 
 /// (added, removed) per path across the whole range - one `git diff` for
 /// every file instead of one process per path. Same numbering the per-path
-/// reader used: added lines numbered at head, removed at base.
+/// reader used: added lines numbered at head, removed at base. A changed
+/// blob whose hunks the attribute layer suppresses (`-diff`, `binary`)
+/// still owes the audit its real delta: a second `diff --text` pass scoped
+/// to exactly those paths recovers it, so removal rules see deleted lines
+/// and added-line rules see only what the range actually added.
 fn range_diff(
     repo: &str,
     target: &Target,
+    paths: &[String],
 ) -> Result<std::collections::HashMap<String, DiffLines>, String> {
+    let base = target.base.as_deref().unwrap_or(EMPTY_TREE);
     let output = git(
         repo,
         &[
@@ -1359,17 +1365,70 @@ fn range_diff(
             "--no-color",
             "--no-renames",
             "--unified=0",
-            target.base.as_deref().unwrap_or(EMPTY_TREE),
+            base,
             &target.head,
         ],
     )?;
+    let mut diffs = parse_diff_hunks(&output.stdout);
+    let status = range_status(repo, target)?;
+    let suppressed: Vec<String> = paths
+        .iter()
+        .filter(|path| !diffs.contains_key(*path) && blob_changed(status.get(*path)))
+        .cloned()
+        .collect();
+    if suppressed.is_empty() {
+        return Ok(diffs);
+    }
+    let mut args: Vec<&str> = vec![
+        "--literal-pathspecs",
+        "diff",
+        "--text",
+        "--no-color",
+        "--no-renames",
+        "--unified=0",
+        base,
+        &target.head,
+        "--",
+    ];
+    args.extend(suppressed.iter().map(String::as_str));
+    let recovered = parse_diff_hunks(&git(repo, &args)?.stdout);
+    for (path, pair) in recovered {
+        // A genuinely binary blob still reports no usable lines: --text
+        // would recover mojibake, so the entry is dropped unless the
+        // recovered text reads as text.
+        let bytes: Vec<u8> = pair
+            .0
+            .iter()
+            .chain(pair.1.iter())
+            .flat_map(|(_, line)| line.bytes().chain([b'\n']))
+            .collect();
+        if !is_binary(&bytes, 8000) {
+            diffs.entry(path).or_insert(pair);
+        }
+    }
+    Ok(diffs)
+}
+
+/// The raw record says the blob itself changed, as opposed to a mode-only
+/// touch whose oid pair is identical. A changed path with no parseable
+/// record is treated as changed: unknown is never mode-only.
+fn blob_changed(record: Option<&(String, String)>) -> bool {
+    match record {
+        Some((base_oid, head_oid)) => base_oid != head_oid,
+        None => true,
+    }
+}
+
+/// Parse `git diff --unified=0 --no-renames` output into (added, removed)
+/// per path.
+fn parse_diff_hunks(stdout: &[u8]) -> std::collections::HashMap<String, DiffLines> {
     let mut diffs: std::collections::HashMap<String, DiffLines> = Default::default();
     let mut path: Option<String> = None;
     let mut deleted_from: Option<String> = None;
     let mut in_hunk = false;
     let (mut old_line, mut new_line) = (0u64, 0u64);
     let header = Regex::new(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@").unwrap();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
+    for line in String::from_utf8_lossy(stdout).lines() {
         if line.starts_with("diff --git ") {
             in_hunk = false;
             path = None;
@@ -1434,19 +1493,19 @@ fn range_diff(
             old_line += 1;
         }
     }
-    Ok(diffs)
+    diffs
 }
 
-/// Path -> (base oid, head oid, status) across the range from one
+/// Path -> (base oid, head oid) across the range from one
 /// `git diff --raw --no-renames -z` pass. The hunk parser cannot
-/// decompose a binary or `-diff`-attributed file, so callers use the raw
-/// record to tell "the blob changed" (still scan the head text) from "a
-/// mode-only change" (the line set is empty). NUL-delimited records keep
-/// quoted and newline-bearing names intact.
+/// decompose a binary or `-diff`-attributed file, so the raw record tells
+/// "the blob changed" (recover the delta) apart from "a mode-only change"
+/// (the line set is empty). NUL-delimited records keep quoted and
+/// newline-bearing names intact.
 fn range_status(
     repo: &str,
     target: &Target,
-) -> Result<std::collections::HashMap<String, (String, String, String)>, String> {
+) -> Result<std::collections::HashMap<String, (String, String)>, String> {
     let output = git(
         repo,
         &[
@@ -1458,26 +1517,26 @@ fn range_status(
             &target.head,
         ],
     )?;
-    let mut map: std::collections::HashMap<String, (String, String, String)> = Default::default();
+    let mut map: std::collections::HashMap<String, (String, String)> = Default::default();
     let mut fields = output.stdout.split(|byte| *byte == 0);
     while let Some(metadata) = fields.next() {
         if metadata.is_empty() {
             continue;
         }
         let Some(path) = fields.next() else { break };
-        // ":<old-mode> <new-mode> <old-oid> <new-oid> <status>"
+        // ":<old-mode> <new-mode> <old-oid> <new-oid> <status>" - a record
+        // that cannot be parsed refuses the pass rather than reporting a
+        // wrong "unchanged".
         let metadata = String::from_utf8_lossy(metadata);
         let parts: Vec<&str> = metadata.split_whitespace().collect();
         if parts.len() < 5 {
-            continue;
+            return Err(format!(
+                "Git could not diff the review range: bad raw record {metadata:?}"
+            ));
         }
         map.insert(
             String::from_utf8_lossy(path).into_owned(),
-            (
-                parts[2].to_string(),
-                parts[3].to_string(),
-                parts[4].to_string(),
-            ),
+            (parts[2].to_string(), parts[3].to_string()),
         );
     }
     Ok(map)
@@ -1908,43 +1967,28 @@ fn checklist_audit(
     // One batch read streams every changed blob through the callback and
     // one diff covers the whole range: no whole-tree text map.
     let diffs = if target.scope == "range" {
-        range_diff(repo, target)?
-    } else {
-        Default::default()
-    };
-    let status = if target.scope == "range" {
-        range_status(repo, target)?
+        range_diff(repo, target, &paths)?
     } else {
         Default::default()
     };
     for_each_head_text(repo, target, &paths, |path, text| {
-        // A range diff that names no hunk for the path splits two ways: a
-        // changed blob the parser could not decompose - a `-diff` or binary
-        // attribute on a text file - still scans, with every head line
-        // treated as added because no finer truth exists; a same-oid
-        // mode-only change keeps the empty line set. Only a snapshot treats
-        // every line of the head text as added unconditionally.
+        // A range diff that names no hunk for the path - a same-oid
+        // mode-only change - has no added or removed lines. Only a
+        // snapshot treats every line of the head text as added.
         let none: DiffLines = Default::default();
         let whole: DiffLines;
         let (added, removed) = match diffs.get(path) {
             Some(pair) => pair,
+            None if target.scope == "range" => &none,
             None => {
-                let scan_whole = target.scope != "range"
-                    || status
-                        .get(path)
-                        .is_some_and(|(base_oid, head_oid, _)| base_oid != head_oid);
-                if !scan_whole {
-                    &none
-                } else {
-                    whole = (
-                        text.lines()
-                            .enumerate()
-                            .map(|(i, l)| (i as u64 + 1, l.to_string()))
-                            .collect(),
-                        Vec::new(),
-                    );
-                    &whole
-                }
+                whole = (
+                    text.lines()
+                        .enumerate()
+                        .map(|(i, l)| (i as u64 + 1, l.to_string()))
+                        .collect(),
+                    Vec::new(),
+                );
+                &whole
             }
         };
         let prose = is_prose(path);
@@ -2141,60 +2185,30 @@ fn regex_hits(repo: &str, target: &Target, rule: &Rule) -> Result<Vec<Hit>, Stri
         }
         _ => {
             // added-lines / removed-lines: the range diff, numbered at the
-            // end of the range the line belongs to.
+            // end of the range the line belongs to. `range_diff` already
+            // recovered the delta of attribute-suppressed files, so a
+            // missing entry means a same-oid mode-only change: no lines.
             let paths = outgoing_paths(repo, target)?;
             if target.scope == "range" {
-                let diffs = range_diff(repo, target)?;
-                let mut rest: Vec<String> = Vec::new();
+                let diffs = range_diff(repo, target, &paths)?;
                 for path in &paths {
-                    match diffs.get(path) {
-                        Some((added, removed)) => {
-                            let lines = if target_name == "added-lines" {
-                                added
-                            } else {
-                                removed
-                            };
-                            for (number, line) in lines {
-                                if pattern.is_match(line) {
-                                    hits.push(Hit {
-                                        path: path.clone(),
-                                        line: *number,
-                                        rule: rule.id.clone(),
-                                        remedy: None,
-                                    });
-                                }
-                            }
-                        }
-                        None => rest.push(path.clone()),
-                    }
-                }
-                // A changed blob with no parsed hunk - a `-diff` or binary
-                // attribute on a text file - yields no added/removed lines
-                // to iterate. Added-lines rules still owe it a scan: no
-                // finer truth exists than the whole head text. A same-oid
-                // mode-only change owes nothing.
-                if target_name == "added-lines" && !rest.is_empty() {
-                    let status = range_status(repo, target)?;
-                    let changed: Vec<String> = rest
-                        .into_iter()
-                        .filter(|path| {
-                            status
-                                .get(path)
-                                .is_some_and(|(base_oid, head_oid, _)| base_oid != head_oid)
-                        })
-                        .collect();
-                    for_each_head_text(repo, target, &changed, |path, text| {
-                        for (index, line) in text.lines().enumerate() {
+                    if let Some((added, removed)) = diffs.get(path) {
+                        let lines = if target_name == "added-lines" {
+                            added
+                        } else {
+                            removed
+                        };
+                        for (number, line) in lines {
                             if pattern.is_match(line) {
                                 hits.push(Hit {
-                                    path: path.to_string(),
-                                    line: index as u64 + 1,
+                                    path: path.clone(),
+                                    line: *number,
                                     rule: rule.id.clone(),
                                     remedy: None,
                                 });
                             }
                         }
-                    })?;
+                    }
                 }
             } else if target_name == "added-lines" {
                 // A snapshot has no base: every line counts as added.
@@ -2336,8 +2350,10 @@ pub fn audit_all(
 mod tests {
     use super::{
         Hit, checklist_audit, clean_audit, dep_closure, dep_key, deps_map, hygiene_audit, in_scope,
-        is_instruction_channel, is_interface_surface, marker_lines, name_pattern, range_diff,
+        is_instruction_channel, is_interface_surface, marker_lines, name_pattern, outgoing_paths,
+        range_diff, regex_hits,
     };
+    use crate::contract::Rule;
     use base64::Engine as _;
 
     #[test]
@@ -2852,7 +2868,8 @@ mod tests {
         std::fs::remove_file(root.join("gone.py")).unwrap();
         let head = commit_all(root, "head");
         let target = range_target(base, head);
-        let diffs = range_diff(root.to_str().unwrap(), &target).unwrap();
+        let paths = outgoing_paths(root.to_str().unwrap(), &target).unwrap();
+        let diffs = range_diff(root.to_str().unwrap(), &target, &paths).unwrap();
         for (path, added) in [("café.py", 1usize), ("gone.py", 0)] {
             let Some((a, _)) = diffs.get(path) else {
                 panic!("{path} must key the diff map: {diffs:?}");
@@ -2925,11 +2942,12 @@ mod tests {
         );
     }
 
-    /// A `-diff` attribute suppresses the hunk stream, but the blob still
-    /// changed: the range pass scans the head text instead of treating the
-    /// path like a mode-only change.
+    /// A `-diff` attribute suppresses the hunk stream, so the range pass
+    /// recovers the real delta with a forced `--text` diff: the added line
+    /// reports, the pre-existing trigger line does not, and a deleted
+    /// ignore rule still reaches its removal rule.
     #[test]
-    fn a_diff_attributed_change_still_scans_the_head_text() {
+    fn a_diff_attributed_change_recovers_its_real_delta() {
         let guard = CaseDir(std::env::temp_dir().join(format!(
             "gv-nodiff-{}-{}",
             std::process::id(),
@@ -2942,27 +2960,63 @@ mod tests {
         let b64 = |s: &str| {
             String::from_utf8(base64::engine::general_purpose::STANDARD.decode(s).unwrap()).unwrap()
         };
-        std::fs::write(root.join(".gitattributes"), "secret.py -diff\n").unwrap();
-        std::fs::write(root.join("secret.py"), "x = 1\n").unwrap();
-        let base = commit_all(root, "base");
+        std::fs::write(
+            root.join(".gitattributes"),
+            "secret.py -diff\n.gitignore -diff\n",
+        )
+        .unwrap();
+        std::fs::write(root.join(".gitignore"), "*.pem\nkeep.txt\n").unwrap();
         std::fs::write(
             root.join("secret.py"),
-            b64("eCA9IDEKciA9IGdldCh1cmwsIHZlcmlmeSA9IEZhbHNlKQo="),
+            b64("eCA9IDEKYyA9IGdldCh1cmwsIHZlcmlmeSA9IEZhbHNlKQo="),
+        )
+        .unwrap();
+        let base = commit_all(root, "base");
+        std::fs::write(root.join(".gitignore"), "keep.txt\n").unwrap();
+        std::fs::write(
+            root.join("secret.py"),
+            b64("eCA9IDEKYyA9IGdldCh1cmwsIHZlcmlmeSA9IEZhbHNlKQpyID0gZ2V0KHVybCwgdmVyaWZ5ID0gRmFsc2UpCg=="),
         )
         .unwrap();
         let head = commit_all(root, "head");
         let target = range_target(base, head);
         let (regressions, _) = checklist_audit(root.to_str().unwrap(), &target, true).unwrap();
-        let tls = |path: &str| {
+        let tls_lines: Vec<u64> = regressions
+            .iter()
+            .filter(|h| h.rule == "runtime/tls-verification-disabled" && h.path == "secret.py")
+            .map(|h| h.line)
+            .collect();
+        assert_eq!(
+            tls_lines,
+            vec![3],
+            "only the newly added trigger line reports, not the pre-existing one"
+        );
+        assert_eq!(
             regressions
                 .iter()
-                .filter(|h| h.rule == "runtime/tls-verification-disabled" && h.path == path)
-                .count()
-        };
-        assert_eq!(
-            tls("secret.py"),
+                .filter(|h| h.rule == "hardening/ignore-rule-removed" && h.path == ".gitignore")
+                .count(),
             1,
-            "a changed blob with suppressed hunks still owes the audit its head text"
+            "the recovered removed lines still feed removal rules"
+        );
+        // The added-lines regex executor sees the same recovered delta.
+        let rule = Rule {
+            id: "test/trigger".into(),
+            title: "trigger".into(),
+            kind: "regex".into(),
+            pattern: Some("verify = False".into()),
+            target: Some("added-lines".into()),
+            prompt: None,
+            builtin: None,
+        };
+        let hits = regex_hits(root.to_str().unwrap(), &target, &rule).unwrap();
+        assert_eq!(
+            hits.iter()
+                .filter(|h| h.path == "secret.py")
+                .map(|h| h.line)
+                .collect::<Vec<_>>(),
+            vec![3],
+            "the regex path reports the same recovered line"
         );
     }
 
