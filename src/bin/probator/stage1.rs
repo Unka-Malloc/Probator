@@ -481,17 +481,14 @@ fn spec_file() -> Result<(std::path::PathBuf, std::fs::File), String> {
     Err("Git could not stage the batch list: name collision".into())
 }
 
-/// Stream the objects named by `specs` through one `git cat-file --batch`
-/// process, in input order. `f` receives the spec's index and the object's
-/// bytes; returning `false` stops the pass early. Specs go through a file:
-/// piped stdin plus a parent that stalls reading deadlocks once the list
-/// outgrows the pipe buffer. Specs must be plain object names (OIDs or
-/// revisions) - a path carrying a newline would split one spec into two
-/// input lines and desynchronize the header-to-index pairing.
 /// The shared `cat-file --batch` preamble: specs stage through a file
-/// (spec_file's 0600/create_new contract), and the returned child streams
-/// `<oid> <type> <size>` headers plus blob bodies on the BufReader. The
-/// caller owns the child's lifecycle and the list file's cleanup.
+/// (spec_file's 0600/create_new contract - piped stdin plus a parent that
+/// stalls reading deadlocks once the list outgrows the pipe buffer), and
+/// the returned child streams `<oid> <type> <size>` headers plus blob
+/// bodies on the BufReader. Specs must be plain object names (OIDs or
+/// revisions) - a path carrying a newline would split one spec into two
+/// input lines and desynchronize the header-to-index pairing. The caller
+/// owns the child's lifecycle and the list file's cleanup.
 fn batch_body_reader(
     repo: &str,
     specs: &[String],
@@ -559,54 +556,22 @@ fn batch_header(out: &mut impl std::io::BufRead) -> Result<Option<usize>, String
         })
 }
 
+/// Stream the objects named by `specs` through one `git cat-file --batch`
+/// process, in input order: `f` receives the spec's index and the whole
+/// blob. This is the unbounded form of `for_each_blob_prefix`.
 fn for_each_blob(
     repo: &str,
     specs: &[String],
-    mut f: impl FnMut(usize, &[u8]) -> Result<bool, String>,
+    f: impl FnMut(usize, &[u8]) -> Result<bool, String>,
 ) -> Result<(), String> {
-    use std::io::Read as _;
-    let Some((mut child, mut out, list)) = batch_body_reader(repo, specs)? else {
-        return Ok(());
-    };
-    let mut result = Ok(());
-    for index in 0..specs.len() {
-        let Some(size) = (match batch_header(&mut out) {
-            Ok(size) => size,
-            Err(error) => {
-                result = Err(error);
-                break;
-            }
-        }) else {
-            continue;
-        };
-        let mut blob = vec![0u8; size];
-        let mut newline = [0u8; 1];
-        if out
-            .read_exact(&mut blob)
-            .and_then(|_| out.read_exact(&mut newline))
-            .is_err()
-        {
-            result = Err("Git could not read the review snapshot: truncated batch".into());
-            break;
-        }
-        match f(index, &blob) {
-            Ok(true) => {}
-            Ok(false) => break,
-            Err(error) => {
-                result = Err(error);
-                break;
-            }
-        }
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-    let _ = std::fs::remove_file(&list);
-    result
+    for_each_blob_prefix(repo, specs, usize::MAX, f)
 }
 
 /// `for_each_blob` with a bounded view: the callback sees at most `cap`
 /// bytes of each blob and the remainder is drained without buffering, so
-/// probing a giant blob costs O(cap) memory plus its transit.
+/// probing a giant blob costs O(cap) memory plus its transit. Early
+/// `Ok(false)` or an error stops the walk; every path leaves the child
+/// reaped and the spec list removed.
 fn for_each_blob_prefix(
     repo: &str,
     specs: &[String],
@@ -1422,19 +1387,22 @@ fn unquote_git_path(raw: &str) -> String {
 /// every file instead of one process per path; same numbering the
 /// per-path reader used: added at head, removed at base.
 ///
-/// A path the hunk pass skipped is classified by its raw oid pair and its
-/// `diff` attribute at the audited head. A same-oid record is a mode-only
-/// change and is skipped without reading a blob; a path the raw pass did
-/// not record is recovered with both sides eligible; a path suppressed by
-/// git's binary-content detection (no `diff` attribute, or `diff` set) is
-/// an ordinary binary asset and drops silently. Only an attribute-
-/// suppressed pair (`-diff`, `binary`, a named driver) is probed per side
-/// with a bounded prefix read: each surviving side disqualifies only its
-/// own lines when it reads as binary, a path with one readable side is
-/// recovered and the unreadable side's lines are dropped without a
-/// surface, and a path with no readable side lands in the second return
-/// value. Recovery is uncapped by size - an unsuppressed twin emits the
-/// same patch bytes, so the attribute cannot have shrunk the delta.
+/// A path the hunk pass skipped is classified by its raw oid pair and,
+/// in the ambient attribute state the hunk pass itself evaluated, its
+/// `diff` attribute. A same-oid record is a mode-only change and is
+/// skipped without reading a blob; a path the raw pass did not record is
+/// recovered with both sides eligible. A path suppressed by git's own
+/// binary-content detection (`diff` unspecified or set, non-protection)
+/// is an ordinary binary asset and drops silently. Everything else -
+/// attribute-suppressed paths, protection files, and paths the attribute
+/// pass did not answer - is probed per side with a bounded prefix read:
+/// each surviving side disqualifies only its own lines when it reads as
+/// binary, a path with one readable side is recovered and the unreadable
+/// side's lines are dropped without a surface, and a path with no
+/// readable side lands in the second return value. Recovery is uncapped
+/// by size - an unsuppressed twin emits the same patch bytes - and the
+/// forced diff streams through a keep-filtered parser, so memory follows
+/// the kept delta rather than the patch.
 fn range_diff(
     repo: &str,
     target: &Target,
@@ -1489,32 +1457,37 @@ fn range_diff(
             }
         }
     }
-    // The attribute split decides who is recovered: only a path whose
-    // hunks an attribute suppresses (`-diff`, `binary`, or a named diff
-    // driver at the audited head) is recovered. A path suppressed by
-    // git's own binary-content detection is an ordinary binary asset and
-    // is dropped without a surface - it is not a coverage gap, it is
-    // churn the diff would never describe.
+    // The attribute split decides which suppressed paths even merit a
+    // probe: a path suppressed by git's own binary-content detection is an
+    // ordinary binary asset and is dropped without a surface, while an
+    // attribute-suppressed path - or one the attribute pass did not
+    // answer - is probed for a readable side. Protection files are always
+    // probed regardless of the attribute answer, so a binary-marked or
+    // content-detected `.gitignore` cannot hide a dropped rule line.
     let candidates: Vec<String> = sides.iter().map(|(path, _, _)| path.clone()).collect();
-    let attrs = diff_attrs(repo, &target.head, &candidates)?;
-    let attr_suppressed = |path: &String| -> bool {
+    let attrs = diff_attrs(repo, &candidates)?;
+    let protection = |path: &str| -> bool {
+        let name = path.rsplit('/').next().unwrap_or(path);
+        name == ".gitignore" || name.to_uppercase().starts_with("CODEOWNERS")
+    };
+    let probed_path = |path: &String| -> bool {
         // `unset` (a `-diff`/`binary` attribute) or a named driver
         // suppressed the hunk; `unspecified`/`set` means git's binary
-        // detection did, and a missing answer is no evidence of an
-        // attribute either.
-        attrs
-            .get(path)
-            .is_some_and(|state| state != "unspecified" && state != "set")
+        // detection did. A missing answer is unknown, not a negative:
+        // the path is probed rather than trusted away.
+        protection(path)
+            || attrs
+                .get(path)
+                .is_none_or(|state| state != "unspecified" && state != "set")
     };
-    // Attribute-suppressed sides are probed for real binary content with
-    // a bounded prefix read - a `-diff` blob that is genuinely binary
-    // produces only mojibake lines, so that side disqualifies its own
-    // added or removed lines. Recovery itself is uncapped: an
-    // unsuppressed twin emits the same patch bytes, so no size gate
-    // applies to the recovery list.
+    // Probe each surviving side with a bounded prefix read - a suppressed
+    // blob that is genuinely binary produces only mojibake lines, so that
+    // side disqualifies only its own added or removed lines. Recovery
+    // itself is uncapped: an unsuppressed twin emits the same patch
+    // bytes, so no size gate applies to the recovery list.
     let probes: Vec<String> = sides
         .iter()
-        .filter(|(path, ..)| attr_suppressed(path))
+        .filter(|(path, ..)| probed_path(path))
         .flat_map(|(_, b, h)| [b, h].into_iter().filter(|oid| !is_zero(oid)).cloned())
         .collect();
     let mut binary: std::collections::HashSet<String> = Default::default();
@@ -1526,15 +1499,14 @@ fn range_diff(
     })?;
     let mut excluded: Vec<String> = Vec::new();
     for (path, base_oid, head_oid) in sides {
-        if !attr_suppressed(&path) {
+        if !probed_path(&path) {
             continue;
         }
         let base_ok = !is_zero(&base_oid) && !binary.contains(&base_oid);
         let head_ok = !is_zero(&head_oid) && !binary.contains(&head_oid);
-        // Only a readable side earns the forced diff: an attribute-
-        // suppressed path binary on every surviving side has no lines
-        // worth patching and is reported as unreadable coverage instead
-        // of silently dropped.
+        // Only a readable side earns the forced diff: a path binary on
+        // every surviving side has no lines worth patching and is
+        // reported as unreadable coverage instead of silently dropped.
         if base_ok || head_ok {
             gating.insert(path.clone(), (base_ok, head_ok));
             recover.push(path);
@@ -1545,6 +1517,9 @@ fn range_diff(
     if recover.is_empty() {
         return Ok((diffs, excluded));
     }
+    // The forced patch streams through the parser rather than landing
+    // whole: the keep filter drops a disqualified side's lines as they
+    // arrive, so memory follows the kept delta, never the raw patch.
     let mut args: Vec<&str> = vec![
         "--literal-pathspecs",
         "diff",
@@ -1557,18 +1532,48 @@ fn range_diff(
         "--",
     ];
     args.extend(recover.iter().map(String::as_str));
-    for (path, mut pair) in parse_diff_hunks(&git(repo, &args)?.stdout) {
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Git could not read the review diff: {e}"))?;
+    let mut parser = DiffParser::new(|path: &str, added: bool| {
         // A binary base has no readable removed lines, a binary head no
         // added ones - keep only the side the surviving blob can honestly
         // describe.
-        if let Some((base_ok, head_ok)) = gating.get(&path) {
-            if !base_ok {
-                pair.1.clear();
-            }
-            if !head_ok {
-                pair.0.clear();
+        gating
+            .get(path)
+            .map(|&(base_ok, head_ok)| if added { head_ok } else { base_ok })
+            .unwrap_or(true)
+    });
+    {
+        use std::io::{BufRead as _, BufReader};
+        let mut out = BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match out.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => parser.feed(line.trim_end_matches('\n')),
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("Git could not read the review diff: {e}"));
+                }
             }
         }
+    }
+    match child.wait() {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            return Err(format!("Git could not read the review diff: exit {status}"));
+        }
+        Err(e) => return Err(format!("Git could not read the review diff: {e}")),
+    }
+    for (path, pair) in parser.finish() {
         if !(pair.0.is_empty() && pair.1.is_empty()) {
             diffs.entry(path).or_insert(pair);
         }
@@ -1608,18 +1613,18 @@ fn batch_check(repo: &str, specs: &[&str], format: &str) -> Result<String, Strin
     Ok(String::from_utf8_lossy(&output?.stdout).into_owned())
 }
 
-/// The `diff` attribute state per path at the audited head, in one
-/// `check-attr --stdin -z` pass. `unset` or a named driver is what
-/// actually suppresses the hunk stream; `unspecified` and `set` mean
-/// git's own content detection decided the file is binary - the answer
-/// that separates an attribute-driven suppression from an ordinary
-/// binary asset.
+/// The `diff` attribute state per path in the same ambient attribute
+/// state the hunk pass evaluated (index plus worktree - one authority,
+/// so a verdict and the suppression it explains can never diverge).
+/// `unset` or a named driver is the attribute layer's doing; `unspecified`
+/// and `set` mean git's own content detection decided the file is binary.
+/// The pass fails loudly - a dead child or a short answer count must
+/// never leave a suppressed change unclassified.
 fn diff_attrs(
     repo: &str,
-    head: &str,
     paths: &[String],
 ) -> Result<std::collections::HashMap<String, String>, String> {
-    use std::io::{BufRead as _, BufReader, Seek as _, SeekFrom, Write as _};
+    use std::io::{BufRead as _, BufReader, Read as _, Seek as _, SeekFrom, Write as _};
     let mut attrs: std::collections::HashMap<String, String> = Default::default();
     if paths.is_empty() {
         return Ok(attrs);
@@ -1637,12 +1642,12 @@ fn diff_attrs(
         Command::new("git")
             .arg("-C")
             .arg(repo)
-            .args(["check-attr", "--source", head, "-z", "--stdin", "diff"])
+            .args(["check-attr", "-z", "--stdin", "diff"])
             .stdin(std::process::Stdio::from(file))
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
             .spawn()
-            .map_err(|e| format!("Git could not read the review snapshot: {e}"))
+            .map_err(|e| format!("Git could not read the review diff attributes: {e}"))
     })();
     let mut child = match spawned {
         Ok(child) => child,
@@ -1655,20 +1660,72 @@ fn diff_attrs(
     // "<path>\0diff\0<state>\0" per query, in input order.
     let mut record: Vec<u8> = Vec::new();
     let mut fields = Vec::new();
+    let mut triples = 0usize;
+    let mut parse_error: Option<String> = None;
     loop {
         record.clear();
-        if out.read_until(0, &mut record).unwrap_or(0) == 0 {
-            break;
+        match out.read_until(0, &mut record) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(e) => {
+                parse_error = Some(format!(
+                    "Git could not read the review diff attributes: {e}"
+                ));
+                break;
+            }
         }
         fields.push(String::from_utf8_lossy(&record[..record.len() - 1]).into_owned());
         if fields.len() == 3 {
             attrs.insert(fields[0].clone(), fields[2].clone());
             fields.clear();
+            triples += 1;
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    if parse_error.is_none() && !fields.is_empty() {
+        parse_error =
+            Some("Git could not read the review diff attributes: truncated record".into());
+    }
+    // Reap first so the exit status is honest - killing a finished child
+    // would mask a non-zero exit as SIGKILL.
+    let status = child.wait();
+    let mut stderr = String::new();
+    if let Some(mut err) = child.stderr.take() {
+        let _ = err.read_to_string(&mut stderr);
+    }
+    if parse_error.is_some() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
     let _ = std::fs::remove_file(&list);
+    if let Some(error) = parse_error {
+        return Err(error);
+    }
+    match status {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            return Err(format!(
+                "Git could not read the review diff attributes: exit {status}{}",
+                if stderr.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!(" - {}", stderr.trim())
+                }
+            ));
+        }
+        Err(e) => {
+            return Err(format!(
+                "Git could not read the review diff attributes: {e}"
+            ));
+        }
+    }
+    // `check-attr` prints one triple per queried path; a short count
+    // means the stream desynchronized, so every answer is suspect.
+    if triples != paths.len() {
+        return Err(format!(
+            "Git could not read the review diff attributes: {triples} answers for {} paths",
+            paths.len()
+        ));
+    }
     Ok(attrs)
 }
 
@@ -1719,38 +1776,61 @@ fn range_oids(
 
 /// Parse `git diff --unified=0 --no-renames` output into (added, removed)
 /// per path.
-fn parse_diff_hunks(stdout: &[u8]) -> std::collections::HashMap<String, DiffLines> {
-    let mut diffs: std::collections::HashMap<String, DiffLines> = Default::default();
-    let mut path: Option<String> = None;
-    let mut deleted_from: Option<String> = None;
-    let mut in_hunk = false;
-    let (mut old_line, mut new_line) = (0u64, 0u64);
-    let header = Regex::new(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@").unwrap();
-    for line in String::from_utf8_lossy(stdout).lines() {
-        if line.starts_with("diff --git ") {
-            in_hunk = false;
-            path = None;
-            deleted_from = None;
-            continue;
+/// Line-fed parser for `diff --unified=0` output: `feed` consumes one
+/// output line at a time, so the forced `--text` pass can stream a giant
+/// recovered delta without ever holding the patch whole. `keep` decides
+/// per path and per side whether a hunk line is stored, so a
+/// disqualified side's bytes are consumed but never held.
+struct DiffParser<F: Fn(&str, bool) -> bool> {
+    diffs: std::collections::HashMap<String, DiffLines>,
+    path: Option<String>,
+    deleted_from: Option<String>,
+    in_hunk: bool,
+    old_line: u64,
+    new_line: u64,
+    header: Regex,
+    keep: F,
+}
+
+impl<F: Fn(&str, bool) -> bool> DiffParser<F> {
+    fn new(keep: F) -> Self {
+        Self {
+            diffs: Default::default(),
+            path: None,
+            deleted_from: None,
+            in_hunk: false,
+            old_line: 0,
+            new_line: 0,
+            header: Regex::new(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@").unwrap(),
+            keep,
         }
-        if !in_hunk {
+    }
+
+    fn feed(&mut self, line: &str) {
+        if line.starts_with("diff --git ") {
+            self.in_hunk = false;
+            self.path = None;
+            self.deleted_from = None;
+            return;
+        }
+        if !self.in_hunk {
             if let Some(rest) = line.strip_prefix("--- ") {
                 if rest != "/dev/null" {
                     // Unquote before stripping the prefix: git C-quotes the
                     // whole header path, `a/` included.
                     let quoted = unquote_git_path(rest);
-                    deleted_from = Some(
+                    self.deleted_from = Some(
                         quoted
                             .strip_prefix("a/")
                             .map(str::to_string)
                             .unwrap_or(quoted),
                     );
                 }
-                continue;
+                return;
             }
             if let Some(rest) = line.strip_prefix("+++ ") {
-                path = if rest == "/dev/null" {
-                    deleted_from.take()
+                self.path = if rest == "/dev/null" {
+                    self.deleted_from.take()
                 } else {
                     let quoted = unquote_git_path(rest);
                     Some(
@@ -1760,38 +1840,53 @@ fn parse_diff_hunks(stdout: &[u8]) -> std::collections::HashMap<String, DiffLine
                             .unwrap_or(quoted),
                     )
                 };
-                if let Some(p) = &path {
-                    diffs.entry(p.clone()).or_default();
+                if let Some(p) = &self.path {
+                    self.diffs.entry(p.clone()).or_default();
                 }
-                continue;
+                return;
             }
         }
         if line.starts_with("@@ ") {
-            in_hunk = true;
-            if let Some(found) = header.captures(line) {
-                old_line = found[1].parse().unwrap_or(0);
-                new_line = found[2].parse().unwrap_or(0);
+            self.in_hunk = true;
+            if let Some(found) = self.header.captures(line) {
+                self.old_line = found[1].parse().unwrap_or(0);
+                self.new_line = found[2].parse().unwrap_or(0);
             }
-            continue;
+            return;
         }
-        let Some(p) = &path else { continue };
+        let Some(p) = &self.path else { return };
         if let Some(text) = line.strip_prefix('+') {
-            diffs
-                .entry(p.clone())
-                .or_default()
-                .0
-                .push((new_line, text.to_string()));
-            new_line += 1;
+            if (self.keep)(p, true) {
+                self.diffs
+                    .entry(p.clone())
+                    .or_default()
+                    .0
+                    .push((self.new_line, text.to_string()));
+            }
+            self.new_line += 1;
         } else if let Some(text) = line.strip_prefix('-') {
-            diffs
-                .entry(p.clone())
-                .or_default()
-                .1
-                .push((old_line, text.to_string()));
-            old_line += 1;
+            if (self.keep)(p, false) {
+                self.diffs
+                    .entry(p.clone())
+                    .or_default()
+                    .1
+                    .push((self.old_line, text.to_string()));
+            }
+            self.old_line += 1;
         }
     }
-    diffs
+
+    fn finish(self) -> std::collections::HashMap<String, DiffLines> {
+        self.diffs
+    }
+}
+
+fn parse_diff_hunks(stdout: &[u8]) -> std::collections::HashMap<String, DiffLines> {
+    let mut parser = DiffParser::new(|_: &str, _: bool| true);
+    for line in String::from_utf8_lossy(stdout).lines() {
+        parser.feed(line);
+    }
+    parser.finish()
 }
 
 /// Resolve each path to its blob OID at the head in one `ls-tree -r -z`
@@ -3499,6 +3594,56 @@ mod tests {
                 .iter()
                 .all(|h| h.rule != "surface/suppressed-unreadable"),
             "a recovered deletion leaves no coverage hole"
+        );
+    }
+
+    /// A protection file is probed even without a suppression attribute:
+    /// a `.gitignore` that turned binary still has its readable base side
+    /// recovered, so the dropped rule line reports; and a protection file
+    /// binary on every surviving side blocks instead of passing silently.
+    #[test]
+    fn a_content_binary_protection_file_never_goes_silent() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-protbin-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let b64 = |s: &str| {
+            String::from_utf8(base64::engine::general_purpose::STANDARD.decode(s).unwrap()).unwrap()
+        };
+        // No .gitattributes at all - the suppression is git's own binary
+        // detection once a blob carries a NUL.
+        std::fs::write(root.join(".gitignore"), b64("Ki5wZW0Ka2VlcC50eHQK")).unwrap();
+        std::fs::write(root.join("CODEOWNERS"), b"* @o\x00wner\n").unwrap();
+        let base = commit_all(root, "base");
+        // `.gitignore`'s head side turns binary: the base is still
+        // readable and owes the removal rules its dropped `*.pem` line.
+        // `CODEOWNERS` was already binary and is deleted outright - no
+        // surviving side is readable, so the hole blocks.
+        std::fs::write(root.join(".gitignore"), b"keep.txt\nx\x00\x01\n").unwrap();
+        std::fs::remove_file(root.join("CODEOWNERS")).unwrap();
+        let head = commit_all(root, "head");
+        let target = range_target(base, head);
+        let (regressions, _) = checklist(root.to_str().unwrap(), &target);
+        assert_eq!(
+            regressions
+                .iter()
+                .filter(|h| h.rule == "hardening/ignore-rule-removed" && h.path == ".gitignore")
+                .count(),
+            1,
+            "a readable base side still feeds removal rules without any attribute"
+        );
+        assert_eq!(
+            regressions
+                .iter()
+                .filter(|h| h.rule == "hardening/protection-unreadable" && h.path == "CODEOWNERS")
+                .count(),
+            1,
+            "a deleted protection file with an unreadable base blocks"
         );
     }
 
