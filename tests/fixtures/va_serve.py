@@ -167,6 +167,24 @@ for line in sys.stdin:
                 }
             )
             break
+        if MODE == "quota":
+            emit(
+                {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {
+                        "code": -32603,
+                        "message": "Free usage limit reached.",
+                        "data": {
+                            "code": "agent_quota_exhausted",
+                            "stage": "session/prompt",
+                            "retryable": True,
+                            "uncertainEffect": True,
+                        },
+                    },
+                }
+            )
+            continue
         if MODE == "failed":
             reject(req_id, "agent_failed", "session/prompt", "stub failed")
             continue

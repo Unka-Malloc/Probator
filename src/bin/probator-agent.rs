@@ -249,7 +249,7 @@ fn user_binding(checker: &str) -> Option<(PathBuf, Value)> {
 /// working directory, mechanisms, MCP servers, skills or agent mode. The open
 /// patch below forces the same fields; this check also refuses a fallback
 /// that would violate them before `va` spends a turn on it.
-fn restricted_profile(profile: &Value) -> bool {
+fn restricted_profile(profile: &Value, stamped_mcp: Option<&Value>) -> bool {
     if !profile.is_object() {
         return false;
     }
@@ -274,8 +274,27 @@ fn restricted_profile(profile: &Value) -> bool {
         && absent("cwd")
         && absent("mechanisms")
         && absent("mode")
-        && empty_list("mcpServers")
+        && (empty_list("mcpServers")
+            || stamped_mcp.is_some_and(|stamped| profile.get("mcpServers") == Some(stamped)))
         && empty_list("skillReferences")
+}
+
+/// The audit server list in the shape ACP and serve lanes accept: the role's
+/// gate-built entries minus the stdio marker field the custody schema does
+/// not know.
+fn lane_mcp_list(role: &awp::Profile) -> Value {
+    Value::Array(
+        role.mcp_servers
+            .iter()
+            .map(|server| {
+                let mut entry = server.clone();
+                if let Some(object) = entry.as_object_mut() {
+                    object.remove("type");
+                }
+                entry
+            })
+            .collect(),
+    )
 }
 
 fn overlay_primary(document: &mut Value, role: &awp::Profile) -> Result<(), a4aa::AdapterError> {
@@ -297,6 +316,23 @@ fn overlay_primary(document: &mut Value, role: &awp::Profile) -> Result<(), a4aa
     // (an effort tier another agent does not offer, a model outside the
     // runtime provider's namespace) fails admission on a candidate that was
     // meant to serve.
+    //
+    // A harness may also require a model id whose wire spelling the
+    // provider/model label cannot carry: DSH ACP selects models as a JSON
+    // pair (`["provider","model"]`). When the registry profile already
+    // carries that native spelling, keep it — the declared runtime label and
+    // the native value name the same model, and flattening the pair to a
+    // slash label would hand the agent a value it does not advertise.
+    let declared_model = role.model.as_deref().map(normalize_model_label);
+    let native_model = entry
+        .get("model")
+        .and_then(Value::as_str)
+        .map(normalize_model_label);
+    if role.model.is_none() {
+        entry.remove("model");
+    } else if native_model != declared_model {
+        entry.insert("model".into(), json!(role.model));
+    }
     let mut overlay = |key: &str, value: Option<Value>| {
         if let Some(value) = value {
             entry.insert(key.into(), value);
@@ -304,7 +340,6 @@ fn overlay_primary(document: &mut Value, role: &awp::Profile) -> Result<(), a4aa
             entry.remove(key);
         }
     };
-    overlay("model", role.model.as_ref().map(|model| json!(model)));
     overlay(
         "models",
         (!role.models.is_empty()).then(|| json!(role.models)),
@@ -629,7 +664,7 @@ fn audit_safe_agent(spec: &Value) -> bool {
 }
 
 fn serving_model(session_state: &Value, declared: &str) -> String {
-    session_state
+    let reported = session_state
         .pointer("/models/currentModelId")
         .or_else(|| session_state.pointer("/models/current_model_id"))
         .and_then(Value::as_str)
@@ -642,8 +677,22 @@ fn serving_model(session_state: &Value, declared: &str) -> String {
                 .find(|option| option["id"].as_str() == Some("model"))
                 .and_then(|option| option["currentValue"].as_str().map(str::to_string))
         })
-        .filter(|model| !model.is_empty())
-        .unwrap_or_else(|| declared.to_string())
+        .filter(|model| !model.is_empty());
+    normalize_model_label(&reported.unwrap_or_else(|| declared.to_string()))
+}
+
+/// A harness may report its model selector as a JSON pair
+/// (`["provider","model"]`); fold that wire shape back into the
+/// provider/model label the admission check and receipts use.
+fn normalize_model_label(model: &str) -> String {
+    let raw = model.trim();
+    if let Ok(Value::Array(parts)) = serde_json::from_str::<Value>(raw)
+        && let Some(parts) = parts.iter().map(Value::as_str).collect::<Option<Vec<_>>>()
+        && !parts.is_empty()
+    {
+        return parts.join("/");
+    }
+    raw.to_string()
 }
 
 fn usage_value(usage: &TokenUsage) -> Value {
@@ -774,14 +823,24 @@ fn remote_error(stage: &'static str, error: RpcErrorObject) -> a4aa::AdapterErro
         .as_ref()
         .and_then(|data| data["uncertainEffect"].as_bool())
         .unwrap_or(false);
-    let code = if uncertain {
+    let remote_code = error.data.as_ref().and_then(|data| data["code"].as_str());
+    // A provider quota refusal is a definitive environment answer: the
+    // provider did not run the turn, so retrying cannot change it. It must
+    // not be reported as an uncertain effect that invites another paid
+    // attempt; the gate names it once and refuses.
+    let quota = remote_code == Some("agent_quota_exhausted");
+    let code = if quota {
+        "audit_quota_exhausted"
+    } else if uncertain {
         "audit_va_recovery_required"
     } else if retryable {
         "audit_va_retryable"
     } else {
         "audit_va_call_failed"
     };
-    let mut failure = if uncertain {
+    let mut failure = if quota {
+        a4aa::AdapterError::permanent(code, stage)
+    } else if uncertain {
         a4aa::AdapterError::uncertain(code, stage)
     } else if retryable {
         a4aa::AdapterError::retryable(code, stage)
@@ -870,8 +929,11 @@ fn opened_from(
     let profile = &document["profiles"][&served_profile];
     // A profile that served an operator binding is still the reviewer's
     // sandbox: it may not declare a stronger permission, extra environment
-    // or working directory, mechanisms, MCP servers or skills.
-    if !restricted_profile(profile) {
+    // or working directory, mechanisms, MCP servers or skills. The packaged
+    // document's tool surface is the gate's own stamped server list — the
+    // exact value this run wrote — so identical entries admit.
+    let stamped = enforce_provider.then(|| lane_mcp_list(role));
+    if !restricted_profile(profile, stamped.as_ref()) {
         return Err(failure("audit_served_not_admitted", "audit/open"));
     }
     let agent = profile["agent"].as_str().unwrap_or("");
@@ -972,7 +1034,7 @@ async fn run(request: Request) -> a4aa::Result<Value> {
             // command whose native tools are not the audit allowlist.
             if admitted.iter().any(|id| {
                 let profile = &user["profiles"][id];
-                if !profile.is_object() || !restricted_profile(profile) {
+                if !profile.is_object() || !restricted_profile(profile, None) {
                     return true;
                 }
                 let agent = profile["agent"].as_str().unwrap_or("");
@@ -1026,12 +1088,40 @@ async fn run(request: Request) -> a4aa::Result<Value> {
             if primary != role.id {
                 return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
             }
-            if document["profiles"][&primary]["agent"].as_str() != Some(role.agent.as_str()) {
-                return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
+            let profile_agent = document["profiles"][&primary]["agent"]
+                .as_str()
+                .unwrap_or("<missing>");
+            if profile_agent != role.agent.as_str() {
+                return Err(
+                    failure("audit_profile_agent_mismatch", "registry/resolve").with_detail(format!(
+                        "packaged profile '{primary}' declares agent '{profile_agent}', but the contract runtime harness is '{}'",
+                        role.agent
+                    )),
+                );
             }
             let mut admitted = vec![primary.clone()];
             admitted.extend(fallbacks);
             overlay_primary(&mut document, role)?;
+            // ACP and serve candidates arm the audit server through their
+            // profile's `mcpServers`; the registry can only declare a static
+            // shape there, so stamp the gate-built server — carrying this
+            // run's own directory — onto every admitted candidate that
+            // declares the surface. RPC candidates such as pi register
+            // through the project file instead and keep no list.
+            for id in &admitted {
+                if let Some(profile) = document["profiles"][id].as_object_mut()
+                    && profile
+                        .get("mcpServers")
+                        .and_then(Value::as_array)
+                        .is_some_and(|servers| {
+                            servers
+                                .iter()
+                                .any(|server| server["name"] == "probator-audit")
+                        })
+                {
+                    profile.insert("mcpServers".into(), lane_mcp_list(role));
+                }
+            }
             let va_home = request.run_dir.join("va-home");
             std::fs::create_dir_all(&va_home)
                 .map_err(|_| failure("audit_va_home_unwritable", "registry/load"))?;
@@ -1109,14 +1199,20 @@ async fn run(request: Request) -> a4aa::Result<Value> {
         a4aa::observe::none(),
         a4aa::framing::DEFAULT_MAX_MESSAGE_BYTES,
     );
-    // The patch carries the gate's whole skill: one audit tool server, a
-    // read-only posture and no operator-supplied environment, working
-    // directory, mechanisms, skills or mode. `va` layers the binding's
-    // harness/model choice underneath these fields.
+    // The patch carries the gate's whole skill: a read-only posture and no
+    // operator-supplied environment, working directory, mechanisms, skills
+    // or mode. `va` layers the binding's harness/model choice underneath
+    // these fields.
+    //
+    // The audit tool server is deliberately not repeated here. ACP and serve
+    // candidates already carry it on their profile's `mcpServers` (stamped
+    // with the run directory above), and pi RPC candidates discover the same
+    // server from the project file written by `write_pi_mcp`. A session/open
+    // `mcpServers` list would be refused by the custody layer for lanes with
+    // no `mcpConfig` argv surface instead of arming the audit.
     let mut patch = json!({
         "name": role.name,
         "instructions": role.instructions,
-        "mcpServers": role.mcp_servers,
         "env": {},
         "mechanisms": null,
         "skillReferences": [],

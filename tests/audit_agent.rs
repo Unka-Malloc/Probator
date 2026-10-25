@@ -271,14 +271,18 @@ fn declared_document_completes_with_usage_and_role_patch() {
     assert!(opens[0].get("resume").is_none());
     assert!(opens[0]["patch"].get("model").is_none());
     assert!(opens[0]["patch"].get("agent").is_none());
+    assert!(
+        opens[0]["patch"].get("mcpServers").is_none(),
+        "pi registers MCP through its project file, not the session/open patch"
+    );
+    let mcp: Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture.run_dir.join(".pi/mcp.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(mcp["mcpServers"]["probator-audit"]["command"], "/bin/echo");
     assert_eq!(
-        opens[0]["patch"]["mcpServers"],
-        json!([{"type":"stdio","name":"probator-audit","command":"/bin/echo","args":[
-            "serve","--contract",
-            fixture.contract_dir.join("contract.json").to_string_lossy(),
-            "--run",
-            fixture.run_dir.to_string_lossy(),
-        ],"env":[]}])
+        mcp["mcpServers"]["probator-audit"]["args"][0], "serve",
+        "the native project file carries the audit tool server argv"
     );
     let prompts = fixture.records("session-prompt.jsonl");
     assert_eq!(prompts.len(), 1);
@@ -300,6 +304,32 @@ fn declared_document_completes_with_usage_and_role_patch() {
     assert!(home["secrets"]["devin-api-key"].is_array());
 }
 
+/// The packaged registry's primary profile must name the contract's runtime
+/// harness. A drifted profile is refused before `va` starts, and the refusal
+/// names both sides so a packaging bug is not mistaken for a spent audit.
+#[test]
+fn a_packaged_profile_agent_mismatch_names_both_harnesses() {
+    let fixture = Fixture::new("complete");
+    let mut document = fixture.document();
+    document["profiles"]["synthetic-reviewer"]["agent"] = json!("pi");
+    fixture.write_document(&document);
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert!(
+        !fixture.spawned(),
+        "a mismatched packaged profile must not reach va"
+    );
+    assert_ne!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert_eq!(result["failure"]["code"], "audit_profile_agent_mismatch");
+    assert_eq!(result["failure"]["stage"], "registry/resolve");
+    let detail = result["failure"]["detail"].as_str().unwrap_or_default();
+    assert!(
+        detail.contains("profile 'synthetic-reviewer' declares agent 'pi'"),
+        "{detail}"
+    );
+    assert!(detail.contains("runtime harness is 'opencode'"), "{detail}");
+}
+
 #[test]
 fn agent_failures_never_complete() {
     for mode in ["failed", "interrupted", "disconnect"] {
@@ -307,6 +337,23 @@ fn agent_failures_never_complete() {
         let (_ok, result) = fixture.invoke();
         assert_eq!(result["completed"], false, "{mode}");
     }
+}
+
+/// A provider-wide quota refusal is a definitive environment answer: the
+/// provider did not run the turn, so the gate must not invite another paid
+/// retry by calling it an uncertain effect.
+#[test]
+fn a_provider_quota_refusal_is_a_precise_permanent_diagnostic() {
+    let fixture = Fixture::new("quota");
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["completed"], false);
+    assert_eq!(result["failure"]["code"], "audit_quota_exhausted");
+    assert_eq!(result["failure"]["retryable"], false);
+    assert_eq!(result["failure"]["uncertain_effect"], false);
+    let detail = result["failure"]["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("agent_quota_exhausted"), "{detail}");
+    assert_eq!(fixture.records("session-open.jsonl").len(), 1);
 }
 
 #[test]
@@ -502,6 +549,79 @@ fn an_exhausted_va_chain_is_classified_without_local_details() {
     assert_eq!(result["completed"], false);
     assert!(result["failure"]["code"].is_string());
     assert_eq!(fixture.records("session-open.jsonl").len(), 1);
+}
+
+#[test]
+fn va_serving_a_pair_shaped_model_is_normalized_for_admission() {
+    let mut fixture = Fixture::new("rpc");
+    fixture.profile = "synthetic-reviewer-pi".into();
+    fixture.agent = "pi".into();
+    fixture.model = "[\"deepseek-official\",\"deepseek-flash\"]".into();
+    fixture.session = "pair-stub-session".into();
+    let (ok, result) = fixture.invoke();
+    assert!(ok, "{result}");
+    assert_eq!(result["completed"], true);
+    assert_eq!(result["served"]["profile"], "synthetic-reviewer-pi");
+    assert_eq!(
+        result["served"]["model"],
+        "deepseek-official/deepseek-flash"
+    );
+}
+
+/// A harness whose model selector is a JSON pair (DSH ACP) must receive
+/// that native spelling. The runtime declares the same model as a
+/// provider/model label, so the overlay has to name the same model without
+/// flattening the pair into a value the agent does not advertise.
+#[test]
+fn a_pair_shaped_native_model_is_not_flattened_by_the_runtime_overlay() {
+    let mut fixture = Fixture::new("complete");
+    let mut document = fixture.document();
+    document["agents"]["dsh"] = json!({
+        "id": "dsh",
+        "lane": "acp",
+        "command": {"program": "dsh", "args": ["acp"]}
+    });
+    document["profiles"]["synthetic-reviewer"]["agent"] = json!("dsh");
+    document["profiles"]["synthetic-reviewer"]["model"] =
+        json!("[\"deepseek-official\",\"deepseek-flash\"]");
+    document["profiles"]["synthetic-reviewer"]["mcpServers"] = json!([{
+        "name": "probator-audit",
+        "command": "/bin/echo",
+        "args": []
+    }]);
+    fixture.write_document(&document);
+    let mut scope: Value =
+        serde_json::from_str(&std::fs::read_to_string(fixture.run_dir.join("scope.json")).unwrap())
+            .unwrap();
+    scope["runtime"] = json!({
+        "harness": "dsh",
+        "provider": "deepseek-official",
+        "model": "deepseek-official/deepseek-flash"
+    });
+    std::fs::write(
+        fixture.run_dir.join("scope.json"),
+        serde_json::to_string(&scope).unwrap(),
+    )
+    .unwrap();
+    fixture.agent = "dsh".into();
+    fixture.model = "[\"deepseek-official\",\"deepseek-flash\"]".into();
+    let (ok, result) = fixture.invoke();
+    assert!(ok, "{result}");
+    assert_eq!(result["completed"], true);
+    assert_eq!(result["served"]["agent"], "dsh");
+    assert_eq!(
+        result["served"]["model"],
+        "deepseek-official/deepseek-flash"
+    );
+    let home: Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture.run_dir.join("va-home/registry.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        home["profiles"]["synthetic-reviewer"]["model"],
+        json!("[\"deepseek-official\",\"deepseek-flash\"]"),
+        "the DSH ACP model selector keeps its native JSON-pair spelling"
+    );
 }
 
 #[test]
@@ -729,7 +849,15 @@ fn a_checker_named_binding_owns_harness_and_fallback_chain() {
         opens[0]["patch"]["instructions"],
         "Only inspect synthetic evidence."
     );
-    assert_eq!(opens[0]["patch"]["mcpServers"][0]["name"], "probator-audit");
+    assert!(
+        opens[0]["patch"].get("mcpServers").is_none(),
+        "the audit server is registered through pi's native project MCP file"
+    );
+    let mcp: Value = serde_json::from_str(
+        &std::fs::read_to_string(fixture.run_dir.join(".pi/mcp.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(mcp["mcpServers"]["probator-audit"]["command"], "/bin/echo");
     assert!(
         opens[0]["patch"].get("model").is_none(),
         "the operator's model choice must not be overlaid by the contract"

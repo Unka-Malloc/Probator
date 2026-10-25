@@ -631,6 +631,12 @@ struct DepRepo {
     name: String,
     aliases: Vec<String>,
     upstreams: Vec<String>,
+    /// Repositories whose public documents may name this entry — the same
+    /// `except` escape the withheld-name list uses. A downstream that is
+    /// itself public (or that shares its name with an upstream's own
+    /// vocabulary) is declared here rather than deleted, so the dependency
+    /// map stays truthful.
+    except: String,
 }
 
 impl DepRepo {
@@ -662,6 +668,12 @@ fn deps_map(path: &std::path::Path) -> Vec<DepRepo> {
         let Some((name, upstreams)) = line.split_once("<-") else {
             continue;
         };
+        let (name, except) = {
+            let mut split = name.splitn(2, " except ");
+            let name = split.next().unwrap_or("").trim().to_string();
+            let scope = split.next().unwrap_or("").trim().to_string();
+            (name, scope)
+        };
         let mut spellings = name.split('|').map(str::trim).filter(|s| !s.is_empty());
         let Some(canonical) = spellings.next() else {
             continue;
@@ -669,6 +681,7 @@ fn deps_map(path: &std::path::Path) -> Vec<DepRepo> {
         entries.push(DepRepo {
             name: canonical.to_string(),
             aliases: spellings.map(str::to_string).collect(),
+            except,
             upstreams: upstreams
                 .split(',')
                 .map(str::trim)
@@ -761,6 +774,7 @@ fn deps_audit(repo: &str, target: &Target, _opts: &Opts) -> Result<Vec<Hit>, Str
     for entry in &entries {
         if entry.names().any(|spelling| spelling == me)
             || !dep_closure(&entries, &entry.name).contains(&me)
+            || (!entry.except.is_empty() && in_scope(&origin_slug(repo), &entry.except))
         {
             continue;
         }

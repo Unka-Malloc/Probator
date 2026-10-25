@@ -915,13 +915,40 @@ mod tests {
             document["bindings"]["audit"]["profile"],
             json!("sample-checker")
         );
+        let fallbacks = document["bindings"]["audit"]["fallbacks"]
+            .as_array()
+            .expect("the audit binding declares fallbacks");
+        let fallback_profiles: Vec<&str> = fallbacks
+            .iter()
+            .map(|fallback| {
+                fallback
+                    .as_str()
+                    .or_else(|| fallback["profile"].as_str())
+                    .unwrap_or("")
+            })
+            .collect();
         assert_eq!(
-            document["bindings"]["audit"]["fallbacks"],
-            json!(["sample-checker-devin", "sample-checker-pi"])
+            fallback_profiles,
+            [
+                "sample-checker-pi",
+                "sample-checker-dsh-commandcode",
+                "sample-checker-codex",
+                "sample-checker-dsh-deepseek"
+            ]
+        );
+        // An availability-scoped fallback carries its windows as host data.
+        assert_eq!(
+            fallbacks[1]["availability"]["windows"][0]["timezone"],
+            json!("UTC")
         );
         assert_eq!(
-            document["profiles"]["sample-checker-devin"]["model"].as_str(),
-            Some("swe-2-max")
+            document["profiles"]["sample-checker-dsh-commandcode"]["model"].as_str(),
+            Some("[\"command-code\",\"deepseek/deepseek-v4.1-flash\"]")
+        );
+        // The primary checker profile arms the engine's audit tool surface.
+        assert_eq!(
+            document["profiles"]["sample-checker"]["mcpServers"][0]["name"],
+            json!("probator-audit")
         );
         // Every program declaration resolved to a concrete string.
         for (id, entry) in document["agents"].as_object().unwrap() {
@@ -940,13 +967,10 @@ mod tests {
         let env_set = &document["agents"]["opencode"]["command"]["env"]["inheritAll"]["set"];
         let config = env_set["OPENCODE_CONFIG_CONTENT"].as_str().unwrap();
         assert!(config.starts_with('{'), "the config embeds as JSON text");
-        // The fallback lane carries a secret reference, never a credential.
-        assert_eq!(
-            document["agents"]["devin"]["auth_key"],
-            json!({"secret": {"secret": "devin-api-key"}})
-        );
-        // Secret recipes ride the document as host data…
-        assert!(document["secrets"]["devin-api-key"].is_array());
+        // The template embeds no credential recipe; a fallback may not carry
+        // a secret reference the gate cannot resolve.
+        assert_eq!(document["secrets"], json!({}));
+        assert!(document["agents"].get("devin").is_none());
         // …and the AwP document validates once they are stripped.
         let mut stripped = document.clone();
         stripped.as_object_mut().unwrap().remove("secrets");
@@ -955,10 +979,16 @@ mod tests {
         let binding = registry.binding("audit").unwrap();
         assert_eq!(binding.profile(), "sample-checker");
         assert_eq!(
-            binding.fallbacks(),
-            &[
-                "sample-checker-devin".to_string(),
-                "sample-checker-pi".to_string()
+            binding
+                .fallbacks()
+                .iter()
+                .map(|f| f.profile())
+                .collect::<Vec<_>>(),
+            [
+                "sample-checker-pi",
+                "sample-checker-dsh-commandcode",
+                "sample-checker-codex",
+                "sample-checker-dsh-deepseek"
             ]
         );
         // The written file round-trips through the same path the runner uses.

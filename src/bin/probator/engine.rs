@@ -153,20 +153,30 @@ pub fn declared_runtime(settings: &Settings) -> Result<Map<String, Value>, Strin
         };
         runtime.insert("effort".to_string(), json!(effort));
     }
-    if let Some(fallbacks) = declared.get("fallback_models") {
-        let fallbacks = fallbacks
+    // The contract schema names the ordered same-agent fallbacks
+    // `fallback_models`; the synced Agents profile that ships the
+    // declaration also spells the same list `models`. Both name the chain
+    // the adapter steps when the active model cannot serve a turn, so either
+    // key feeds the role's `models`. A profile that carries both is
+    // unambiguous only because the contract key wins; an empty list is still
+    // a declaration.
+    if let Some((key, fallbacks)) = ["fallback_models", "models"]
+        .iter()
+        .find_map(|key| declared.get(*key).map(|value| (*key, value)))
+    {
+        let entries = fallbacks
             .as_array()
-            .ok_or_else(|| "runtime.fallback_models must be a list".to_string())?
+            .ok_or_else(|| format!("runtime.{key} must be a list"))?
             .iter()
             .map(|entry| entry.as_str().unwrap_or("").to_string())
             .collect::<Vec<_>>();
-        if let Some(bad) = fallbacks.iter().find(|entry| !entry.starts_with(&prefix)) {
+        if let Some(bad) = entries.iter().find(|entry| !entry.starts_with(&prefix)) {
             return Err(format!(
-                "runtime.fallback_models entry {bad:?} must sit in the declared provider's \
+                "runtime.{key} entry {bad:?} must sit in the declared provider's \
                  namespace ({prefix}…)"
             ));
         }
-        runtime.insert("models".to_string(), json!(fallbacks));
+        runtime.insert("models".to_string(), json!(entries));
     }
     if let Some(windows) = declared.get("windows") {
         let windows = windows
@@ -401,6 +411,7 @@ pub fn prune_runs(runs_dir: &Path) {
 fn audited(
     settings: &Settings,
     contract: &Contract,
+    repo_id: &str,
     base: Option<&str>,
     head: &str,
     runtime: &Map<String, Value>,
@@ -422,7 +433,8 @@ fn audited(
         // reviewer that never judged this content; it is not reusable.
         let same_binding =
             report.get("checker_binding").unwrap_or(&Value::Null) == &settings.checker_binding;
-        if report["review_base"].as_str().unwrap_or("") == base.unwrap_or("")
+        if report["repo"].as_str() == Some(repo_id)
+            && report["review_base"].as_str().unwrap_or("") == base.unwrap_or("")
             && report["review_head"].as_str() == Some(head)
             && report["review_items"] == json!(contract.domains)
             && report["gate_status"] == "passed"
@@ -930,8 +942,8 @@ fn receipt_dir(runs: &Path, contract: &Contract, repo_id: &str, head: &str) -> O
     newest.map(|(_, path)| path)
 }
 
-/// An unfinished run of exactly this target under this runtime, waiting to
-/// continue. resume.json is the lookup key; scope.json cannot serve because
+/// An unfinished run of exactly this repository, target and runtime, waiting
+/// to continue. resume.json is the lookup key; scope.json cannot serve because
 /// it is removed when a run ends.
 fn resume_dir(runs: &Path, key: &Value) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = std::fs::read_dir(runs)
@@ -1020,14 +1032,20 @@ fn agent_review(
         (outcome, result.status.code().unwrap_or(1), duration_ms)
     };
     let usage = &outcome["usage"];
-    let valid_usage = [
-        "input_tokens",
-        "output_tokens",
-        "cache_read_tokens",
-        "cache_write_tokens",
-    ]
-    .iter()
-    .all(|key| usage[key].as_u64().is_some());
+    // A harness may legitimately report no per-turn token counters: the DSH
+    // ACP prompt response omits the optional `usage` field. Usage is cost
+    // accounting, not review evidence — the sealed receipt and the admitted
+    // reviewer identity carry the audit. Counters that are present must be
+    // complete; a null usage is recorded as null, never fabricated as zero.
+    let valid_usage = usage.is_null()
+        || [
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+        ]
+        .iter()
+        .all(|key| usage[key].as_u64().is_some());
     let identity = role_identity(settings, contract);
     let selected = &outcome["profile"];
     let valid_profile = ["id", "revision"]
@@ -1273,6 +1291,11 @@ fn review_target(
     }
     let identity = role_identity(settings, contract);
     let resume_key = json!({
+        // A resume directory belongs to one repository, not merely to one
+        // commit range and reviewer. Two checkouts can carry identical
+        // commits; continuing a partially paid session across them would
+        // hand the second repository the first one's workspace and session.
+        "repo": repo_id,
         "base": base,
         "head": target.head,
         "items": contract.domains,
@@ -1668,7 +1691,14 @@ fn review_gate(
                     .unwrap_or(0),
             );
         }
-        if let Some(receipt) = audited(settings, contract, base.as_deref(), &target.head, runtime) {
+        if let Some(receipt) = audited(
+            settings,
+            contract,
+            &repo_id,
+            base.as_deref(),
+            &target.head,
+            runtime,
+        ) {
             println!(
                 "{}: {} already passed its semantic review ({}); reusing that verdict",
                 contract.title,
@@ -1886,7 +1916,7 @@ mod tests {
     use super::{
         ChangedLines, Cursor, Hunk, Settings, audited, carried_blockers,
         checker_binding_identity_from, cursor_advance, cursor_entry, cursor_file, cursor_key,
-        parse_changed_lines, runtime_identity, standing_report, waiver_note,
+        declared_runtime, parse_changed_lines, runtime_identity, standing_report, waiver_note,
     };
     use crate::contract::Contract;
     use serde_json::{Map, Value, json};
@@ -1953,6 +1983,67 @@ mod tests {
             "model": "openai/gpt-6-luna"
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn the_synced_profile_models_key_is_the_same_fallback_chain() {
+        let skill = scratch_profile("skill");
+        std::fs::write(
+            skill.join("profile.json"),
+            json!({
+                "runtime": {
+                    "harness": "opencode",
+                    "provider": "opencode",
+                    "model": "opencode/deepseek-v4.1-flash-free",
+                    "models": ["opencode/glm-5.3-flash-free"]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut settings = settings_with_binding(scratch_profile("profile"), Value::Null);
+        settings.skill_dir = skill.clone();
+        let runtime = declared_runtime(&settings).unwrap();
+        assert_eq!(
+            runtime["models"],
+            json!(["opencode/glm-5.3-flash-free"]),
+            "the Agents profile's `models` list is the role's fallback chain"
+        );
+
+        // The contract spelling is authoritative when a profile carries both.
+        std::fs::write(
+            skill.join("profile.json"),
+            json!({
+                "runtime": {
+                    "harness": "opencode",
+                    "provider": "opencode",
+                    "model": "opencode/deepseek-v4.1-flash-free",
+                    "fallback_models": ["opencode/deepseek-v4-pro-free"],
+                    "models": ["opencode/glm-5.3-flash-free"]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let runtime = declared_runtime(&settings).unwrap();
+        assert_eq!(runtime["models"], json!(["opencode/deepseek-v4-pro-free"]));
+
+        // A fallback outside the declared provider's namespace still refuses.
+        std::fs::write(
+            skill.join("profile.json"),
+            json!({
+                "runtime": {
+                    "harness": "opencode",
+                    "provider": "opencode",
+                    "model": "opencode/deepseek-v4.1-flash-free",
+                    "models": ["openai/gpt-6-luna"]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let error = declared_runtime(&settings).unwrap_err();
+        assert!(error.contains("runtime.models"), "{error}");
     }
 
     #[test]
@@ -2163,16 +2254,18 @@ mod tests {
     }
 
     #[test]
-    fn a_receipt_from_another_binding_is_not_reused() {
+    fn a_receipt_from_another_binding_or_repository_is_not_reused() {
         let profile = scratch_profile("binding-receipt");
         let contract = sample_contract();
         let runtime = sample_runtime();
         let head = "a".repeat(40);
+        let repo = "local:/synthetic/repo";
         let binding = json!({"binding": "first"});
         let settings = settings_with_binding(profile.clone(), binding.clone());
         let run = profile.join("sample-gate-runs").join("review-1");
         std::fs::create_dir_all(&run).unwrap();
         let mut receipt = json!({
+            "repo": repo,
             "review_base": head,
             "review_head": head,
             "review_items": contract.domains,
@@ -2192,12 +2285,24 @@ mod tests {
         )
         .unwrap();
         assert!(
-            audited(&settings, &contract, Some(&head), &head, &runtime).is_some(),
+            audited(&settings, &contract, repo, Some(&head), &head, &runtime).is_some(),
             "the same binding reuses its sealed receipt"
+        );
+        assert!(
+            audited(
+                &settings,
+                &contract,
+                "local:/synthetic/other-repo",
+                Some(&head),
+                &head,
+                &runtime,
+            )
+            .is_none(),
+            "the same commits in another repository have not been judged"
         );
         let other = settings_with_binding(profile.clone(), json!({"binding": "second"}));
         assert!(
-            audited(&other, &contract, Some(&head), &head, &runtime).is_none(),
+            audited(&other, &contract, repo, Some(&head), &head, &runtime).is_none(),
             "a changed binding has not judged the covered content"
         );
         let _ = std::fs::remove_dir_all(profile);

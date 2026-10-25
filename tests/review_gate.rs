@@ -66,7 +66,8 @@ printf '%s\n' \
   '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"sample_context","arguments":{"operation":"diff","path":"src/other.rs"}}}' \
   "$submit" \
   | "$exe" serve --contract "$contract" --run "$run_dir" > "$(dirname "$0")/serve-out.jsonl"
-printf '{"completed":true,"stop_reason":"completed","usage":{"input_tokens":1,"output_tokens":1,"cache_read_tokens":0,"cache_write_tokens":0},"profile":{"id":"sample-gate","revision":null,"principal":"synthetic"}}\n'
+if [ "${FIXTURE_NO_USAGE:-}" = 1 ]; then usage=null; else usage='{"input_tokens":1,"output_tokens":1,"cache_read_tokens":0,"cache_write_tokens":0}'; fi
+printf '{"completed":true,"stop_reason":"completed","usage":%s,"profile":{"id":"sample-gate","revision":null,"principal":"synthetic"}}\n' "$usage"
 "#;
 
 const CONTRACT: &str = r#"{
@@ -240,6 +241,225 @@ fn the_gate_reviews_once_then_reuses_the_receipt() {
         "{stdout}"
     );
     assert!(!marker.exists(), "the runner must not run again");
+}
+
+/// A sealed receipt is the review evidence. A harness whose prompt response
+/// omits the optional token counters (DSH ACP does) must not turn a settled
+/// verdict into a refused audit; the absence is recorded as null, never
+/// fabricated as zero.
+#[test]
+fn a_sealed_review_without_token_usage_still_settles() {
+    let (guard, base, head) = fixture();
+    let (root, repo) = (guard.0.clone(), guard.0.join("repo"));
+    let run = run_gate_env(
+        &root,
+        &repo,
+        &base,
+        &head,
+        &[("FIXTURE_NO_USAGE", Path::new("1"))],
+    );
+    assert!(
+        run.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let runs = root.join("profile/sample-gate-runs");
+    let run_dir = std::fs::read_dir(&runs)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let completion: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(run_dir.join("completion.json")).unwrap())
+            .unwrap();
+    assert_eq!(completion["completed"], true);
+    assert_eq!(completion["has_report"], true);
+    assert!(completion["outcome"]["usage"].is_null());
+}
+
+/// A session that settles without calling the submit tool: the run keeps its
+/// resume state (it was paid for and can be continued) but produces no sealed
+/// receipt.
+const NO_REPORT_RUNNER: &str = r#"#!/bin/bash
+set -euo pipefail
+printf '{"completed":true,"stop_reason":"completed","usage":{"input_tokens":1,"output_tokens":1,"cache_read_tokens":0,"cache_write_tokens":0},"profile":{"id":"sample-gate","revision":null,"principal":"synthetic"}}\n'
+"#;
+
+/// Point the checker's installation at a different fixture runner.
+fn install_runner(root: &Path, runner: &Path) {
+    let path = root.join("plugin/installation.json");
+    let mut settings: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    settings["agent_runner"] = serde_json::json!(runner.to_string_lossy());
+    std::fs::write(&path, serde_json::to_string(&settings).unwrap()).unwrap();
+}
+
+fn run_dirs(runs: &Path) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(runs)
+        .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
+        .unwrap_or_default();
+    dirs.sort();
+    dirs
+}
+
+/// Resume state belongs to a repository, not just to a commit range and
+/// reviewer. Two checkouts can carry identical commits and the same
+/// checker/profile; a session that settled on one without sealing a receipt
+/// must never be continued while reviewing the other.
+#[test]
+fn a_session_on_one_repository_is_never_resumed_for_another() {
+    let (guard, base, head) = fixture();
+    let (root, repo_a) = (guard.0.clone(), guard.0.join("repo"));
+    // The second checkout replays the same commits, so a resume key that
+    // ignores repository identity collides exactly.
+    let repo_b = root.join("repo-b");
+    let copied = Command::new("cp")
+        .args(["-R", &repo_a.to_string_lossy(), &repo_b.to_string_lossy()])
+        .status()
+        .unwrap();
+    assert!(copied.success(), "the second checkout must be created");
+    assert_eq!(git(&repo_b, &["rev-parse", "HEAD"]), head);
+
+    // Repo A's session settles without a report: the run directory stays
+    // resumable, exactly as an interrupted review does.
+    let incomplete = root.join("no-report-runner.sh");
+    std::fs::write(&incomplete, NO_REPORT_RUNNER).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&incomplete, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    install_runner(&root, &incomplete);
+    let first = run_gate(&root, &repo_a, &base, &head);
+    assert!(
+        !first.status.success(),
+        "a session without a sealed report must refuse: {}",
+        String::from_utf8_lossy(&first.stdout)
+    );
+    let runs = root.join("profile/sample-gate-runs");
+    let first_dirs = run_dirs(&runs);
+    assert_eq!(first_dirs.len(), 1, "repo A gets its own run directory");
+    assert!(!first_dirs[0].join("report.json").exists());
+    let repo_a_identity = format!(
+        "local:{}",
+        std::fs::canonicalize(&repo_a).unwrap().display()
+    );
+    let a_key: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(first_dirs[0].join("resume.json")).unwrap())
+            .unwrap();
+    assert_eq!(a_key["repo"], serde_json::json!(repo_a_identity));
+
+    // The same checker/profile now reviews repo B at the same commits. It
+    // must open a fresh run directory instead of continuing A's session.
+    install_runner(&root, &root.join("runner.sh"));
+    let second = run_gate(&root, &repo_b, &base, &head);
+    assert!(
+        second.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let dirs = run_dirs(&runs);
+    assert_eq!(
+        dirs.len(),
+        2,
+        "repo B must not resume repo A's run directory"
+    );
+    let repo_b_identity = format!(
+        "local:{}",
+        std::fs::canonicalize(&repo_b).unwrap().display()
+    );
+    let b_dir = dirs
+        .iter()
+        .find(|dir| {
+            std::fs::read_to_string(dir.join("resume.json"))
+                .ok()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .is_some_and(|key| key["repo"] == serde_json::json!(repo_b_identity))
+        })
+        .expect("repo B's run carries its own repository identity");
+    let receipt: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(b_dir.join("report.json")).unwrap()).unwrap();
+    assert_eq!(receipt["repo"], serde_json::json!(repo_b_identity));
+    assert_eq!(receipt["review_head"], head);
+    assert!(
+        !first_dirs[0].join("report.json").exists(),
+        "repo A's unfinished session stays untouched"
+    );
+}
+
+/// A sealed pass is a receipt for the repository it judged, not for bare
+/// commit ids. Two checkouts can carry identical commits and the same
+/// checker/profile; the second must still pay for its own review.
+#[test]
+fn a_sealed_receipt_on_one_repository_is_never_reused_for_another() {
+    let (guard, base, head) = fixture();
+    let (root, repo_a) = (guard.0.clone(), guard.0.join("repo"));
+    let repo_b = root.join("repo-b");
+    let copied = Command::new("cp")
+        .args(["-R", &repo_a.to_string_lossy(), &repo_b.to_string_lossy()])
+        .status()
+        .unwrap();
+    assert!(copied.success(), "the second checkout must be created");
+    assert_eq!(
+        git(&repo_b, &["rev-parse", "HEAD"]),
+        head,
+        "the two checkouts carry identical commits"
+    );
+
+    let first = run_gate(&root, &repo_a, &base, &head);
+    assert!(
+        first.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let runs = root.join("profile/sample-gate-runs");
+    let repo_a_identity = format!(
+        "local:{}",
+        std::fs::canonicalize(&repo_a).unwrap().display()
+    );
+    let first_dirs = run_dirs(&runs);
+    assert_eq!(first_dirs.len(), 1);
+    let receipt_a: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(first_dirs[0].join("report.json")).unwrap())
+            .unwrap();
+    assert_eq!(receipt_a["repo"], serde_json::json!(repo_a_identity));
+    assert_eq!(receipt_a["verdict"], "pass");
+
+    let marker = root.join("runner-was-here");
+    assert!(marker.exists());
+    std::fs::remove_file(&marker).unwrap();
+    let second = run_gate(&root, &repo_b, &base, &head);
+    let stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(
+        second.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(
+        !stdout.contains("already passed its semantic review"),
+        "repo B must not inherit repo A's sealed pass: {stdout}"
+    );
+    assert!(
+        marker.exists(),
+        "the reviewer must run for repo B's own receipt"
+    );
+
+    let repo_b_identity = format!(
+        "local:{}",
+        std::fs::canonicalize(&repo_b).unwrap().display()
+    );
+    let dirs = run_dirs(&runs);
+    assert_eq!(dirs.len(), 2, "repo B gets its own run directory");
+    let receipt_b: serde_json::Value = dirs
+        .iter()
+        .filter_map(|dir| {
+            let raw = std::fs::read_to_string(dir.join("report.json")).ok()?;
+            serde_json::from_str::<serde_json::Value>(&raw).ok()
+        })
+        .find(|report| report["repo"] == serde_json::json!(repo_b_identity))
+        .expect("repo B's run seals a receipt naming that repository");
+    assert_eq!(receipt_b["verdict"], "pass");
+    assert_eq!(receipt_b["review_head"], head);
 }
 
 #[test]

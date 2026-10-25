@@ -1,44 +1,81 @@
 {
   "agents": {
+    "dsh": {
+      "id": "dsh",
+      "clientName": "DeepSeek Harness",
+      "lane": "acp",
+      "mcp_servers": [],
+      "prefer_load": false,
+      "auth_key": null,
+      "command": {
+        "program": {
+          "resolve": [
+            "dsh",
+            "{home}/.local/bin/dsh"
+          ]
+        },
+        "args": [
+          "acp"
+        ],
+        "cwd": null,
+        "env": {
+          "inheritAll": {
+            "set": {}
+          }
+        }
+      },
+      "maxOutputBytes": null
+    },
     "opencode": {
       "id": "opencode",
-      "lane": "serve",
+      "lane": "acp",
       "command": {
-        "program": {"resolve": ["opencode", "{home}/.opencode/bin/opencode"]},
-        "args": ["serve", "--port", "0"],
+        "program": {
+          "resolve": [
+            "opencode",
+            "{home}/.opencode/bin/opencode"
+          ]
+        },
+        "args": [
+          "acp"
+        ],
         "env": {
           "inheritAll": {
             "set": {
-              "OPENCODE_CONFIG_CONTENT": {"$json": {
-                "share": "disabled",
-                "autoupdate": false,
-                "snapshot": false,
-                "formatter": false,
-                "lsp": false,
-                "plugin": [],
-                "enabled_providers": ["opencode"],
-                "permission": {
-                  "edit": "deny",
-                  "bash": "deny",
-                  "webfetch": "deny",
-                  "doom_loop": "deny",
-                  "external_directory": "deny"
-                },
-                "tools": {
-                  "write": false,
-                  "edit": false,
-                  "patch": false,
-                  "bash": false,
-                  "webfetch": false,
-                  "websearch": false,
-                  "task": false,
-                  "skill": false,
-                  "question": false,
-                  "todowrite": false,
-                  "todoread": false,
-                  "codesearch": false
+              "OPENCODE_CONFIG_CONTENT": {
+                "$json": {
+                  "share": "disabled",
+                  "autoupdate": false,
+                  "snapshot": false,
+                  "formatter": false,
+                  "lsp": false,
+                  "plugin": [],
+                  "enabled_providers": [
+                    "opencode"
+                  ],
+                  "permission": {
+                    "edit": "deny",
+                    "bash": "deny",
+                    "webfetch": "deny",
+                    "doom_loop": "deny",
+                    "external_directory": "deny"
+                  },
+                  "tools": {
+                    "write": false,
+                    "edit": false,
+                    "patch": false,
+                    "bash": false,
+                    "webfetch": false,
+                    "websearch": false,
+                    "task": false,
+                    "skill": false,
+                    "question": false,
+                    "todowrite": false,
+                    "todoread": false,
+                    "codesearch": false
+                  }
                 }
-              }}
+              }
             }
           }
         }
@@ -46,44 +83,57 @@
       "alternates": [
         {
           "id": "opencode",
-          "lane": "acp",
+          "lane": "serve",
           "prefer_load": true,
           "command": {
-            "program": {"resolve": ["opencode", "{home}/.opencode/bin/opencode"]},
-            "args": ["acp"],
+            "program": {
+              "resolve": [
+                "opencode",
+                "{home}/.opencode/bin/opencode"
+              ]
+            },
+            "args": [
+              "serve",
+              "--port",
+              "0"
+            ],
             "env": {
               "inheritAll": {
                 "set": {
-                  "OPENCODE_CONFIG_CONTENT": {"$json": {
-                    "share": "disabled",
-                    "autoupdate": false,
-                    "snapshot": false,
-                    "formatter": false,
-                    "lsp": false,
-                    "plugin": [],
-                    "enabled_providers": ["opencode"],
-                    "permission": {
-                      "edit": "deny",
-                      "bash": "deny",
-                      "webfetch": "deny",
-                      "doom_loop": "deny",
-                      "external_directory": "deny"
-                    },
-                    "tools": {
-                      "write": false,
-                      "edit": false,
-                      "patch": false,
-                      "bash": false,
-                      "webfetch": false,
-                      "websearch": false,
-                      "task": false,
-                      "skill": false,
-                      "question": false,
-                      "todowrite": false,
-                      "todoread": false,
-                      "codesearch": false
+                  "OPENCODE_CONFIG_CONTENT": {
+                    "$json": {
+                      "share": "disabled",
+                      "autoupdate": false,
+                      "snapshot": false,
+                      "formatter": false,
+                      "lsp": false,
+                      "plugin": [],
+                      "enabled_providers": [
+                        "opencode"
+                      ],
+                      "permission": {
+                        "edit": "deny",
+                        "bash": "deny",
+                        "webfetch": "deny",
+                        "doom_loop": "deny",
+                        "external_directory": "deny"
+                      },
+                      "tools": {
+                        "write": false,
+                        "edit": false,
+                        "patch": false,
+                        "bash": false,
+                        "webfetch": false,
+                        "websearch": false,
+                        "task": false,
+                        "skill": false,
+                        "question": false,
+                        "todowrite": false,
+                        "todoread": false,
+                        "codesearch": false
+                      }
                     }
-                  }}
+                  }
                 }
               }
             }
@@ -91,40 +141,74 @@
         }
       ]
     },
-    "devin": {
-      "id": "devin",
-      "lane": "acp",
-      "prefer_load": true,
-      "auth_key": {"secret": {"secret": "devin-api-key"}},
-      "command": {
-        "program": {"resolve": ["devin", "/Applications/Devin.app/Contents/Resources/app/extensions/windsurf/devin/bin/devin"]},
-        "args": ["acp"],
-        "env": {
-          "inheritAll": {
-            "set": {
-              "DEVIN_MODEL": "swe-2-max"
-            }
-          }
-        }
-      }
-    },
     "pi": {
       "id": "pi",
       "lane": "rpc",
       "command": {
-        "program": {"resolve": ["pi", "{home}/.local/bin/pi", "{home}/.pi/agent/bin/pi"]},
-        "args": ["--mode", "rpc", "--approve", "--tools", "codemode,mcp__probator_audit__*", "--no-extensions", "-e", "builtin:mcp", "-e", "builtin:codemode", "-e", "builtin:tool-search", "--no-skills", "--no-prompt-templates", "--no-context-files"]
+        "program": {
+          "resolve": [
+            "pi",
+            "{home}/.local/bin/pi",
+            "{home}/.pi/agent/bin/pi"
+          ]
+        },
+        "args": [
+          "--mode",
+          "rpc",
+          "--approve",
+          "--tools",
+          "codemode,mcp__probator_audit__*",
+          "--no-extensions",
+          "-e",
+          "builtin:mcp",
+          "-e",
+          "builtin:codemode",
+          "-e",
+          "builtin:tool-search",
+          "--no-skills",
+          "--no-prompt-templates",
+          "--no-context-files"
+        ]
       },
-      "sessionOpen": {"method": "get_state", "params": {}},
-      "sessionResume": {"method": "switch_session", "params": {"sessionPath": "{sessionId}"}},
-      "prompt": {"method": "prompt", "params": {"message": "{prompt}"}},
-      "completion": {"method": "agent_settled"},
-      "cancel": {"method": "abort", "params": {}},
+      "sessionOpen": {
+        "method": "get_state",
+        "params": {}
+      },
+      "sessionResume": {
+        "method": "switch_session",
+        "params": {
+          "sessionPath": "{sessionId}"
+        }
+      },
+      "prompt": {
+        "method": "prompt",
+        "params": {
+          "message": "{prompt}"
+        }
+      },
+      "completion": {
+        "method": "agent_settled"
+      },
+      "cancel": {
+        "method": "abort",
+        "params": {}
+      },
       "textEventMethod": "message_update",
       "textPath": "assistantMessageEvent.delta",
       "preTurn": [
-        {"method": "set_model", "params": {"provider": "{modelProvider}", "modelId": "{modelId}"}},
-        {"method": "set_thinking_level", "params": {"level": "{effort}"}}
+        {
+          "method": "set_model",
+          "params": {
+            "provider": "{modelProvider}",
+            "modelId": "{modelId}"
+          }
+        },
+        {
+          "method": "set_thinking_level",
+          "params": {
+            "level": "{effort}"
+          }
+        }
       ],
       "envelope": {
         "methodField": "type",
@@ -137,21 +221,333 @@
         "successField": "success",
         "commandField": "command"
       },
-      "passthrough": ["get_state", "get_available_models", "steer", "get_last_assistant_text", "switch_session"]
+      "passthrough": [
+        "get_state",
+        "get_available_models",
+        "steer",
+        "get_last_assistant_text",
+        "switch_session"
+      ]
+    },
+    "codex": {
+      "id": "codex",
+      "clientName": "Codex",
+      "lane": "rpc",
+      "initialize": {
+        "method": "initialize",
+        "params": {
+          "clientInfo": {
+            "name": "a4aa",
+            "version": "0.4.0"
+          }
+        }
+      },
+      "initialized": "initialized",
+      "sessionOpen": {
+        "method": "thread/start",
+        "params": {
+          "cwd": "{cwd}",
+          "sandbox": "{permission}",
+          "developerInstructions": "{instructions}"
+        }
+      },
+      "sessionResume": {
+        "method": "thread/resume",
+        "params": {
+          "threadId": "{sessionId}",
+          "excludeTurns": true
+        }
+      },
+      "prompt": {
+        "method": "turn/start",
+        "params": {
+          "threadId": "{sessionId}",
+          "input": [
+            {
+              "type": "text",
+              "text": "{prompt}"
+            }
+          ],
+          "model": "{model}",
+          "effort": "{effort}"
+        }
+      },
+      "completion": {
+        "method": "turn/completed",
+        "turnIdPath": "turn.id",
+        "statusPath": "turn.status",
+        "statusValue": null
+      },
+      "cancel": {
+        "method": "turn/interrupt",
+        "params": {
+          "threadId": "{sessionId}",
+          "turnId": "{turnId}"
+        }
+      },
+      "sessionClose": null,
+      "textEventMethod": "item/agentMessage/delta",
+      "textPath": null,
+      "resultTextPath": null,
+      "preTurn": [],
+      "sessionScope": "agent",
+      "killOnCancel": false,
+      "envelope": null,
+      "passthrough": [
+        "account/rateLimits/read",
+        "model/list",
+        "thread/unarchive",
+        "turn/steer"
+      ],
+      "transport": "stdio",
+      "mcpConfig": {
+        "flag": "-c",
+        "root": "mcp_servers",
+        "envVarsKey": "env_vars",
+        "toolsApproval": {
+          "key": "default_tools_approval_mode",
+          "value": "approve"
+        }
+      },
+      "command": {
+        "program": {
+          "resolve": [
+            "codex",
+            "{home}/.local/bin/codex",
+            "{home}/.codex/bin/codex"
+          ]
+        },
+        "args": [
+          "app-server",
+          "--stdio"
+        ],
+        "cwd": null,
+        "env": {
+          "inheritAll": {
+            "set": {}
+          }
+        }
+      },
+      "maxOutputBytes": null,
+      "alternates": [
+        {
+          "id": "codex",
+          "clientName": "Codex",
+          "lane": "cli",
+          "args": [
+            "--json",
+            "--skip-git-repo-check",
+            "-C",
+            "{cwd}",
+            "-m",
+            "{model}",
+            "-s",
+            "{permission}",
+            "{prompt}"
+          ],
+          "promptChannel": "arg-only",
+          "stream": "stdio",
+          "resumeArgs": [
+            "--json",
+            "--skip-git-repo-check",
+            "-m",
+            "{model}",
+            "{prompt}"
+          ],
+          "resumeSpawnArgs": [
+            "exec",
+            "resume",
+            "{sessionId}"
+          ],
+          "stdinTemplate": null,
+          "jsonLines": true,
+          "sessionIdPath": "thread_id",
+          "usagePath": "usage",
+          "openArgs": [],
+          "bindingFileEnv": null,
+          "bindingReceiptShape": "session-id",
+          "resultSelector": "item.completed",
+          "resultSelectorField": "type",
+          "resultPath": "item.text",
+          "permissionModes": [
+            "read-only",
+            "workspace-write",
+            "danger-full-access"
+          ],
+          "command": {
+            "program": {
+              "resolve": [
+                "codex",
+                "{home}/.local/bin/codex",
+                "{home}/.codex/bin/codex"
+              ]
+            },
+            "args": [
+              "exec"
+            ],
+            "cwd": null,
+            "env": {
+              "inheritAll": {
+                "set": {}
+              }
+            }
+          },
+          "maxOutputBytes": null
+        }
+      ]
     }
   },
   "profiles": {
-    "{checker}": {"agent": "pi"},
-    "{checker}-devin": {"agent": "devin", "model": "swe-2-max"},
-    "{checker}-pi": {"agent": "pi"}
+    "{checker}": {
+      "agent": "opencode",
+      "mcpServers": [
+        {
+          "name": "probator-audit",
+          "command": "{home}/.local/bin/probator",
+          "args": [
+            "serve",
+            "--contract",
+            "{home}/.local/share/probator/profiles/{checker}/plugins/{checker}/contract.json",
+            "--run",
+            "."
+          ],
+          "env": []
+        }
+      ]
+    },
+    "{checker}-pi": {
+      "agent": "pi",
+      "model": "openai/gpt-6-luna",
+      "effort": "max"
+    },
+    "{checker}-dsh-commandcode": {
+      "agent": "dsh",
+      "model": "[\"command-code\",\"deepseek/deepseek-v4.1-flash\"]",
+      "effort": "max",
+      "mcpServers": [
+        {
+          "name": "probator-audit",
+          "command": "{home}/.local/bin/probator",
+          "args": [
+            "serve",
+            "--contract",
+            "{home}/.local/share/probator/profiles/{checker}/plugins/{checker}/contract.json",
+            "--run",
+            "."
+          ],
+          "env": []
+        }
+      ]
+    },
+    "{checker}-codex": {
+      "agent": "codex",
+      "model": "openai/gpt-6-luna",
+      "effort": "high",
+      "mcpServers": [
+        {
+          "name": "probator-audit",
+          "command": "{home}/.local/bin/probator",
+          "args": [
+            "serve",
+            "--contract",
+            "{home}/.local/share/probator/profiles/{checker}/plugins/{checker}/contract.json",
+            "--run",
+            "."
+          ],
+          "env": []
+        }
+      ]
+    },
+    "{checker}-dsh-deepseek": {
+      "agent": "dsh",
+      "model": "[\"deepseek-official\",\"deepseek-flash\"]",
+      "effort": "max",
+      "mcpServers": [
+        {
+          "name": "probator-audit",
+          "command": "{home}/.local/bin/probator",
+          "args": [
+            "serve",
+            "--contract",
+            "{home}/.local/share/probator/profiles/{checker}/plugins/{checker}/contract.json",
+            "--run",
+            "."
+          ],
+          "env": []
+        }
+      ]
+    }
   },
   "bindings": {
-    "audit": {"profile": "{checker}", "fallbacks": ["{checker}-devin", "{checker}-pi"]}
+    "audit": {
+      "profile": "{checker}",
+      "fallbacks": [
+        "{checker}-pi",
+        {
+          "profile": "{checker}-dsh-commandcode",
+          "availability": {
+            "windows": [
+              {
+                "days": "mon,tue,wed,thu,fri",
+                "from": "00:00",
+                "to": "01:00",
+                "timezone": "UTC"
+              },
+              {
+                "days": "mon,tue,wed,thu,fri",
+                "from": "04:00",
+                "to": "06:00",
+                "timezone": "UTC"
+              },
+              {
+                "days": "mon,tue,wed,thu,fri",
+                "from": "10:00",
+                "to": "00:00",
+                "timezone": "UTC"
+              },
+              {
+                "days": "sat,sun",
+                "from": "00:00",
+                "to": "00:00",
+                "timezone": "UTC"
+              }
+            ]
+          }
+        },
+        "{checker}-codex",
+        {
+          "profile": "{checker}-dsh-deepseek",
+          "availability": {
+            "windows": [
+              {
+                "days": "mon,tue,wed,thu,fri",
+                "from": "00:00",
+                "to": "01:00",
+                "timezone": "UTC"
+              },
+              {
+                "days": "mon,tue,wed,thu,fri",
+                "from": "04:00",
+                "to": "06:00",
+                "timezone": "UTC"
+              },
+              {
+                "days": "mon,tue,wed,thu,fri",
+                "from": "10:00",
+                "to": "00:00",
+                "timezone": "UTC"
+              },
+              {
+                "days": "sat,sun",
+                "from": "00:00",
+                "to": "00:00",
+                "timezone": "UTC"
+              }
+            ]
+          }
+        }
+      ]
+    }
   },
-  "secrets": {
-    "devin-api-key": [
-      {"env": "DEVIN_API_KEY"},
-      {"toml": {"path": "{home}/.local/share/devin/credentials.toml", "key": "windsurf_api_key"}}
-    ]
-  }
+  "secrets": {}
 }
