@@ -9,8 +9,21 @@
   "severity": "blocking",
   "tools": {
     "name_prefix": "money",
-    "context": ["inventory", "original_request", "list", "diff", "read", "find"],
-    "context_full_service": ["inventory", "original_request", "list", "read", "find"],
+    "context": [
+      "inventory",
+      "original_request",
+      "list",
+      "diff",
+      "read",
+      "find"
+    ],
+    "context_full_service": [
+      "inventory",
+      "original_request",
+      "list",
+      "read",
+      "find"
+    ],
     "submit": true,
     "official_documents": true,
     "full_service": true,

@@ -206,6 +206,32 @@ pub fn outgoing_paths(repo: &str, target: &Target) -> Result<Vec<String>, String
     }
 }
 
+/// One `ls-tree -r -z` pass over `tree` yielding `(path, mode, oid)` per
+/// entry. The records are NUL-delimited, so a newline inside a name cannot
+/// split one record into two; callers filter on the mode they accept.
+fn ls_tree_entries(repo: &str, tree: &str) -> Result<Vec<(String, String, String)>, String> {
+    let mut entries = Vec::new();
+    for record in git(repo, &["ls-tree", "-r", "-z", tree])?
+        .stdout
+        .split(|byte| *byte == 0)
+    {
+        if record.is_empty() {
+            continue;
+        }
+        let record = String::from_utf8_lossy(record);
+        let Some((metadata, path)) = record.split_once('\t') else {
+            continue;
+        };
+        let mut fields = metadata.split_whitespace();
+        let (mode, oid) = (
+            fields.next().unwrap_or("").to_string(),
+            fields.nth(1).unwrap_or("").to_string(),
+        );
+        entries.push((path.to_string(), mode, oid));
+    }
+    Ok(entries)
+}
+
 /// `owner/name` parsed from the origin remote. A remote that is a local path
 /// is not a repository any name can identify.
 fn origin_slug(repo: &str) -> String {
@@ -507,13 +533,14 @@ fn for_each_blob(
         }
         // "<oid> <type> <size>\n", or "<spec> missing" for a spec with no
         // object - the pass skips it and keeps the order contract.
-        let mut tokens = header.split_whitespace();
-        let _ = tokens.next();
-        let size = match (tokens.next(), tokens.next()) {
-            (Some(_kind), Some(size)) => size.parse::<usize>().ok(),
-            (Some("missing"), None) => continue,
-            _ => None,
-        };
+        if header.trim_end().ends_with(" missing") {
+            continue;
+        }
+        let size = header
+            .trim_end()
+            .rsplit_once(' ')
+            .filter(|(meta, _)| meta.split_ascii_whitespace().count() == 2)
+            .and_then(|(_, size)| size.parse::<usize>().ok());
         let Some(size) = size else {
             result = Err(format!(
                 "Git could not read the review snapshot: bad batch header {header:?}"
@@ -568,24 +595,12 @@ fn clean_audit_scan(
     let mut hits = Vec::new();
     let mut scanned: std::collections::HashSet<String> = Default::default();
     let mut files: Vec<(String, String)> = Vec::new();
-    for record in git(repo, &["ls-tree", "-rz", &target.head])?
-        .stdout
-        .split(|byte| *byte == 0)
-    {
-        if record.is_empty() {
+    for (path, mode, oid) in ls_tree_entries(repo, &target.head)? {
+        if mode != "100644" && mode != "100755" {
             continue;
         }
-        let record = String::from_utf8_lossy(record);
-        let Some((metadata, path)) = record.split_once('\t') else {
-            continue;
-        };
-        if !metadata.starts_with("100644 ") && !metadata.starts_with("100755 ") {
-            continue;
-        }
-        if let Some(oid) = metadata.split_whitespace().nth(2) {
-            scanned.insert(oid.to_string());
-            files.push((path.to_string(), oid.to_string()));
-        }
+        scanned.insert(oid.clone());
+        files.push((path, oid));
     }
     let oids: Vec<String> = files.iter().map(|(_, oid)| oid.clone()).collect();
     for_each_blob(repo, &oids, |index, blob| {
@@ -886,25 +901,12 @@ fn deps_audit(repo: &str, target: &Target, _opts: &Opts) -> Result<Vec<Hit>, Str
         return Ok(Vec::new());
     }
     let mut docs: Vec<(String, String)> = Vec::new();
-    for record in git(repo, &["ls-tree", "-r", "-z", &target.head])?
-        .stdout
-        .split(|byte| *byte == 0)
-    {
-        if record.is_empty() {
+    for (path, mode, oid) in ls_tree_entries(repo, &target.head)? {
+        if mode != "100644" && mode != "100755" {
             continue;
         }
-        let record = String::from_utf8_lossy(record);
-        let Some((metadata, path)) = record.split_once('\t') else {
-            continue;
-        };
-        if !metadata.starts_with("100644 ") && !metadata.starts_with("100755 ") {
-            continue;
-        }
-        if !is_document(path) {
-            continue;
-        }
-        if let Some(oid) = metadata.split_whitespace().nth(2) {
-            docs.push((path.to_string(), oid.to_string()));
+        if is_document(&path) {
+            docs.push((path, oid));
         }
     }
     let mut hits = Vec::new();
@@ -1435,6 +1437,52 @@ fn range_diff(
     Ok(diffs)
 }
 
+/// Path -> (base oid, head oid, status) across the range from one
+/// `git diff --raw --no-renames -z` pass. The hunk parser cannot
+/// decompose a binary or `-diff`-attributed file, so callers use the raw
+/// record to tell "the blob changed" (still scan the head text) from "a
+/// mode-only change" (the line set is empty). NUL-delimited records keep
+/// quoted and newline-bearing names intact.
+fn range_status(
+    repo: &str,
+    target: &Target,
+) -> Result<std::collections::HashMap<String, (String, String, String)>, String> {
+    let output = git(
+        repo,
+        &[
+            "diff",
+            "--raw",
+            "--no-renames",
+            "-z",
+            target.base.as_deref().unwrap_or(EMPTY_TREE),
+            &target.head,
+        ],
+    )?;
+    let mut map: std::collections::HashMap<String, (String, String, String)> = Default::default();
+    let mut fields = output.stdout.split(|byte| *byte == 0);
+    while let Some(metadata) = fields.next() {
+        if metadata.is_empty() {
+            continue;
+        }
+        let Some(path) = fields.next() else { break };
+        // ":<old-mode> <new-mode> <old-oid> <new-oid> <status>"
+        let metadata = String::from_utf8_lossy(metadata);
+        let parts: Vec<&str> = metadata.split_whitespace().collect();
+        if parts.len() < 5 {
+            continue;
+        }
+        map.insert(
+            String::from_utf8_lossy(path).into_owned(),
+            (
+                parts[2].to_string(),
+                parts[3].to_string(),
+                parts[4].to_string(),
+            ),
+        );
+    }
+    Ok(map)
+}
+
 /// Resolve each path to its blob OID at the head in one `ls-tree -r -z`
 /// pass. A newline inside a name cannot split a NUL-delimited record, and
 /// the specs this returns are bare OIDs - no path text ever reaches the
@@ -1444,23 +1492,13 @@ fn head_blob_oids(
     target: &Target,
     paths: &[String],
 ) -> Result<Vec<Option<String>>, String> {
-    let mut map: std::collections::HashMap<Vec<u8>, String> = Default::default();
-    for record in git(repo, &["ls-tree", "-r", "-z", &target.head])?
-        .stdout
-        .split(|byte| *byte == 0)
-    {
-        let Some(tab) = record.iter().position(|byte| *byte == b'\t') else {
-            continue;
-        };
-        let metadata = String::from_utf8_lossy(&record[..tab]);
-        if let Some(oid) = metadata.split_whitespace().nth(2) {
-            map.insert(record[tab + 1..].to_vec(), oid.to_string());
-        }
+    // Every entry is admitted - no mode filter - so a submodule or symlink
+    // the caller asked about resolves to whatever object it names.
+    let mut map: std::collections::HashMap<String, String> = Default::default();
+    for (path, _, oid) in ls_tree_entries(repo, &target.head)? {
+        map.insert(path, oid);
     }
-    Ok(paths
-        .iter()
-        .map(|path| map.get(path.as_bytes()).cloned())
-        .collect())
+    Ok(paths.iter().map(|path| map.get(path).cloned()).collect())
 }
 
 /// Invoke `f` with each path's text at the outgoing revision - missing,
@@ -1874,25 +1912,39 @@ fn checklist_audit(
     } else {
         Default::default()
     };
+    let status = if target.scope == "range" {
+        range_status(repo, target)?
+    } else {
+        Default::default()
+    };
     for_each_head_text(repo, target, &paths, |path, text| {
-        // A range diff that names no hunk for the path - a mode-only change,
-        // a binary-attributed text file, a name the parser could not key -
-        // means no added or removed lines. Only a snapshot treats every line
-        // of the head text as added.
+        // A range diff that names no hunk for the path splits two ways: a
+        // changed blob the parser could not decompose - a `-diff` or binary
+        // attribute on a text file - still scans, with every head line
+        // treated as added because no finer truth exists; a same-oid
+        // mode-only change keeps the empty line set. Only a snapshot treats
+        // every line of the head text as added unconditionally.
         let none: DiffLines = Default::default();
         let whole: DiffLines;
         let (added, removed) = match diffs.get(path) {
             Some(pair) => pair,
-            None if target.scope == "range" => &none,
             None => {
-                whole = (
-                    text.lines()
-                        .enumerate()
-                        .map(|(i, l)| (i as u64 + 1, l.to_string()))
-                        .collect(),
-                    Vec::new(),
-                );
-                &whole
+                let scan_whole = target.scope != "range"
+                    || status
+                        .get(path)
+                        .is_some_and(|(base_oid, head_oid, _)| base_oid != head_oid);
+                if !scan_whole {
+                    &none
+                } else {
+                    whole = (
+                        text.lines()
+                            .enumerate()
+                            .map(|(i, l)| (i as u64 + 1, l.to_string()))
+                            .collect(),
+                        Vec::new(),
+                    );
+                    &whole
+                }
             }
         };
         let prose = is_prose(path);
@@ -2063,23 +2115,11 @@ fn regex_hits(repo: &str, target: &Target, rule: &Rule) -> Result<Vec<Hit>, Stri
         }
         "revision-lines" => {
             let mut files: Vec<(String, String)> = Vec::new();
-            for record in git(repo, &["ls-tree", "-rz", &target.head])?
-                .stdout
-                .split(|byte| *byte == 0)
-            {
-                if record.is_empty() {
+            for (path, mode, oid) in ls_tree_entries(repo, &target.head)? {
+                if mode != "100644" && mode != "100755" {
                     continue;
                 }
-                let record = String::from_utf8_lossy(record);
-                let Some((metadata, path)) = record.split_once('\t') else {
-                    continue;
-                };
-                if !metadata.starts_with("100644 ") && !metadata.starts_with("100755 ") {
-                    continue;
-                }
-                if let Some(oid) = metadata.split_whitespace().nth(2) {
-                    files.push((path.to_string(), oid.to_string()));
-                }
+                files.push((path, oid));
             }
             let oids: Vec<String> = files.iter().map(|(_, oid)| oid.clone()).collect();
             for_each_blob(repo, &oids, |index, blob| {
@@ -2105,30 +2145,59 @@ fn regex_hits(repo: &str, target: &Target, rule: &Rule) -> Result<Vec<Hit>, Stri
             let paths = outgoing_paths(repo, target)?;
             if target.scope == "range" {
                 let diffs = range_diff(repo, target)?;
+                let mut rest: Vec<String> = Vec::new();
                 for path in &paths {
-                    if let Some((added, removed)) = diffs.get(path) {
-                        let lines = if target_name == "added-lines" {
-                            added
-                        } else {
-                            removed
-                        };
-                        for (number, line) in lines {
+                    match diffs.get(path) {
+                        Some((added, removed)) => {
+                            let lines = if target_name == "added-lines" {
+                                added
+                            } else {
+                                removed
+                            };
+                            for (number, line) in lines {
+                                if pattern.is_match(line) {
+                                    hits.push(Hit {
+                                        path: path.clone(),
+                                        line: *number,
+                                        rule: rule.id.clone(),
+                                        remedy: None,
+                                    });
+                                }
+                            }
+                        }
+                        None => rest.push(path.clone()),
+                    }
+                }
+                // A changed blob with no parsed hunk - a `-diff` or binary
+                // attribute on a text file - yields no added/removed lines
+                // to iterate. Added-lines rules still owe it a scan: no
+                // finer truth exists than the whole head text. A same-oid
+                // mode-only change owes nothing.
+                if target_name == "added-lines" && !rest.is_empty() {
+                    let status = range_status(repo, target)?;
+                    let changed: Vec<String> = rest
+                        .into_iter()
+                        .filter(|path| {
+                            status
+                                .get(path)
+                                .is_some_and(|(base_oid, head_oid, _)| base_oid != head_oid)
+                        })
+                        .collect();
+                    for_each_head_text(repo, target, &changed, |path, text| {
+                        for (index, line) in text.lines().enumerate() {
                             if pattern.is_match(line) {
                                 hits.push(Hit {
-                                    path: path.clone(),
-                                    line: *number,
+                                    path: path.to_string(),
+                                    line: index as u64 + 1,
                                     rule: rule.id.clone(),
                                     remedy: None,
                                 });
                             }
                         }
-                    }
+                    })?;
                 }
             } else if target_name == "added-lines" {
-                // A snapshot has no base: every line counts as added. In a
-                // range a missing diff entry means no lines - never a
-                // whole-file fallback (checklist_audit applies the same
-                // policy). A snapshot targets removed-lines: no lines.
+                // A snapshot has no base: every line counts as added.
                 for_each_head_text(repo, target, &paths, |path, text| {
                     for (index, line) in text.lines().enumerate() {
                         if pattern.is_match(line) {
@@ -2828,7 +2897,13 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
         permissions.set_mode(0o755);
         std::fs::set_permissions(root.join("mode.py"), permissions).unwrap();
-        std::fs::write(root.join("normal.py"), "x = 1\ny = 2\n").unwrap();
+        // A real trigger line added to a sibling: the same pass must report
+        // exactly this hit and none of mode.py's pre-existing lines.
+        std::fs::write(
+            root.join("normal.py"),
+            b64("eCA9IDEKciA9IGdldCh1cmwsIHZlcmlmeSA9IEZhbHNlKQo="),
+        )
+        .unwrap();
         let head = commit_all(root, "head");
         let target = range_target(base, head);
         let (regressions, _) = checklist_audit(root.to_str().unwrap(), &target, true).unwrap();
@@ -2843,9 +2918,51 @@ mod tests {
             0,
             "the pre-existing line was never added in this range"
         );
-        assert!(
-            regressions.is_empty() || tls("normal.py") == 0,
-            "only the chmod touched mode.py"
+        assert_eq!(
+            tls("normal.py"),
+            1,
+            "the sibling's added trigger line still reports exactly once"
+        );
+    }
+
+    /// A `-diff` attribute suppresses the hunk stream, but the blob still
+    /// changed: the range pass scans the head text instead of treating the
+    /// path like a mode-only change.
+    #[test]
+    fn a_diff_attributed_change_still_scans_the_head_text() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-nodiff-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let b64 = |s: &str| {
+            String::from_utf8(base64::engine::general_purpose::STANDARD.decode(s).unwrap()).unwrap()
+        };
+        std::fs::write(root.join(".gitattributes"), "secret.py -diff\n").unwrap();
+        std::fs::write(root.join("secret.py"), "x = 1\n").unwrap();
+        let base = commit_all(root, "base");
+        std::fs::write(
+            root.join("secret.py"),
+            b64("eCA9IDEKciA9IGdldCh1cmwsIHZlcmlmeSA9IEZhbHNlKQo="),
+        )
+        .unwrap();
+        let head = commit_all(root, "head");
+        let target = range_target(base, head);
+        let (regressions, _) = checklist_audit(root.to_str().unwrap(), &target, true).unwrap();
+        let tls = |path: &str| {
+            regressions
+                .iter()
+                .filter(|h| h.rule == "runtime/tls-verification-disabled" && h.path == path)
+                .count()
+        };
+        assert_eq!(
+            tls("secret.py"),
+            1,
+            "a changed blob with suppressed hunks still owes the audit its head text"
         );
     }
 

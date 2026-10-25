@@ -112,9 +112,9 @@ impl Server {
         serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string())
     }
 
-    fn dispatch(&mut self, tool: &str, args: &Value) -> Result<Value, String> {
+    fn dispatch(&mut self, tool_name: &str, args: &Value) -> Result<Value, String> {
         let prefix = self.contract.tools.name_prefix.clone();
-        if tool == format!("{prefix}_context") {
+        if tool_name == format!("{prefix}_context") {
             // The declared verb list is the capability boundary: an operation
             // the contract does not offer refuses before it is served, so the
             // manifest and the runtime stay one authority.
@@ -140,7 +140,7 @@ impl Server {
             }
             return self.context(args);
         }
-        if tool == format!("{prefix}_official_doc") && self.contract.tools.official_documents {
+        if tool_name == format!("{prefix}_official_doc") && self.contract.tools.official_documents {
             let name = args["name"].as_str().unwrap_or("");
             let full_mode = self.full.is_some();
             let documents = self
@@ -181,7 +181,7 @@ impl Server {
             }
             return Ok(reply);
         }
-        if tool == format!("{prefix}_submit_review") {
+        if tool_name == format!("{prefix}_submit_review") {
             // The draft is preserved before validation: a correction resumes
             // from it instead of recreating the findings after a failure.
             let draft =
@@ -421,6 +421,10 @@ mod tests {
 
     /// A snapshot review object: one commit, no base, a contract beside it.
     fn fixture() -> (Fixture, std::path::PathBuf, std::path::PathBuf) {
+        fixture_with_verbs(&["inventory", "list", "diff", "read", "find"])
+    }
+
+    fn fixture_with_verbs(verbs: &[&str]) -> (Fixture, std::path::PathBuf, std::path::PathBuf) {
         let root = std::env::temp_dir().join(format!(
             "gv-serve-{}-{}",
             std::process::id(),
@@ -466,7 +470,7 @@ mod tests {
             "on": ["pre-push"],
             "tools": {
                 "name_prefix": "sample",
-                "context": ["inventory", "list", "diff", "read", "find"],
+                "context": verbs,
                 "submit": true,
                 "descriptions": {"context": "c", "submit": "s"}
             },
@@ -660,6 +664,28 @@ mod tests {
         )
         .unwrap();
         (Fixture(root), run)
+    }
+
+    /// A contract that withholds a verb refuses it at dispatch: the declared
+    /// list is the capability boundary, not a suggestion.
+    #[test]
+    fn an_undeclared_operation_is_refused_before_serving() {
+        let (_guard, contract, run) = fixture_with_verbs(&["inventory", "list", "read", "find"]);
+        let mut server = Server::load(&contract, &run).unwrap();
+        let refused: Value =
+            serde_json::from_str(&server.call("sample_context", &json!({"operation": "diff"})))
+                .unwrap();
+        assert!(
+            refused["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("Unknown context operation"),
+            "{refused}"
+        );
+        let served: Value =
+            serde_json::from_str(&server.call("sample_context", &json!({"operation": "list"})))
+                .unwrap();
+        assert!(served["matches"].is_array(), "{served}");
     }
 
     /// The full-service transcripts the Python engine produced, replayed

@@ -468,13 +468,14 @@ fn lane_admitted(document: &Value, agent: &str) -> bool {
         .any(|lane| matches!(lane, "acp" | "serve" | "rpc"))
 }
 
-/// Whether every candidate a binding can serve runs on a lane that advertises
-/// a per-session permission selector. RPC and ACP lanes reject a preset
-/// outright (`agent_permission_unsupported`), so forcing one there would make
-/// a healthy audit fail at `session/open`. The role itself still declares
-/// read-only, and the host's permission handler cancels every non-audit
-/// prompt; only lanes that can enforce the selector receive it.
-fn permission_selector_supported(document: &Value, binding: &str) -> bool {
+/// Whether every candidate a binding can serve runs on a lane that carries a
+/// per-session permission selector - today only the serve lane. RPC and ACP
+/// lanes reject a preset outright (`agent_permission_unsupported`), so
+/// forcing one there would make a healthy audit fail at `session/open`.
+/// Admission already required every candidate to declare `read-only`; on
+/// RPC/ACP the declaration reaches the runtime through the profile itself,
+/// while the serve lane needs it re-projected through this selector.
+fn binding_projects_permission(document: &Value, binding: &str) -> bool {
     let entry = &document["bindings"][binding];
     let mut profiles: Vec<&str> = Vec::new();
     if let Some(primary) = entry["profile"].as_str() {
@@ -1273,10 +1274,11 @@ async fn run(request: Request) -> a4aa::Result<Value> {
         "skillReferences": [],
         "mode": null,
     });
-    // Only a lane that advertises the selector may receive it; an RPC or ACP
-    // candidate would otherwise refuse the whole open before the reviewer
-    // ever starts.
-    if permission_selector_supported(&document, &binding) {
+    // Every admissible candidate already declares `permission: "read-only"`;
+    // this stamp re-projects it only for lanes that carry a selector (serve).
+    // An RPC or ACP candidate would refuse the whole open on an unknown
+    // preset, and its profile declaration already reaches the runtime.
+    if binding_projects_permission(&document, &binding) {
         patch["permission"] = json!("read-only");
     }
     let open_params = |resume: Option<&str>| {
@@ -1550,5 +1552,48 @@ mod tests {
         let mut denied = prompt(None, "audit", json!({"name": "mcp__probator_audit__read"}));
         denied.options = vec![("deny-1".into(), "Deny".into(), "deny_once".into())];
         assert!(matches!(decide(denied), PermissionDecision::Cancelled));
+    }
+
+    /// Representative `permission/request` params run through the same
+    /// mapping the delegate uses: whatever shape the lane nests the call
+    /// in, only a host-reported audit name can select the allow option.
+    #[test]
+    fn wire_permission_requests_map_to_the_same_decision() {
+        let decide_params = |params: Value| {
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap()
+                .block_on(AuditPermissions.decide(permission_prompt(&params)))
+        };
+        let params = |tool_call: Value| {
+            json!({
+                "sessionId": "s",
+                "toolCallId": "t",
+                "title": "read",
+                "kind": "read",
+                "options": [{"optionId": "allow-1", "name": "Allow", "kind": "allow_once"}],
+                "raw": {"toolCall": tool_call},
+            })
+        };
+        assert!(matches!(
+            decide_params(params(json!({"name": "mcp__probator_audit__read"}))),
+            PermissionDecision::Selected(id) if id == "allow-1"
+        ));
+        // A non-audit name, a missing name, or the audit name appearing in a
+        // different field of the call all cancel.
+        for tool_call in [
+            json!({"name": "mcp__other__read"}),
+            json!({}),
+            json!({"title": "mcp__probator_audit__read"}),
+            json!({"function": {"name": "mcp__probator_audit__read"}}),
+        ] {
+            assert!(
+                matches!(
+                    decide_params(params(tool_call.clone())),
+                    PermissionDecision::Cancelled
+                ),
+                "only the host's toolCall.name may approve: {tool_call}"
+            );
+        }
     }
 }
