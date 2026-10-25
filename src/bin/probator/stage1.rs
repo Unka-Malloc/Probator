@@ -513,10 +513,7 @@ fn batch_body_reader(
         file.flush()
             .and_then(|_| file.seek(SeekFrom::Start(0)))
             .map_err(|e| format!("Git could not stage the batch list: {e}"))?;
-        Command::new("git")
-            .arg("-C")
-            .arg(repo)
-            .args(["cat-file", "--batch"])
+        git_command(repo, &["cat-file", "--batch"], None)
             .stdin(std::process::Stdio::from(file))
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
@@ -1407,6 +1404,29 @@ fn unquote_git_path(raw: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// `GIT_ATTR_SOURCE` needs Git 2.42 - below that the variable is silently
+/// ignored and an ambient `.gitattributes` could suppress a path the head
+/// classification says is plain text, splitting the two passes' authority.
+/// Fail the range audit closed rather than audit on a divergent source.
+fn require_attr_source(repo: &str) -> Result<(), String> {
+    let output = git(repo, &["version"])?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut parts = text
+        .trim()
+        .strip_prefix("git version ")
+        .unwrap_or("")
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .split('.')
+        .filter_map(|part| part.parse::<u64>().ok());
+    let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+    if (major, minor) >= (2, 42) {
+        return Ok(());
+    }
+    Err("Git could not read the review snapshot: range audits need Git 2.42+ so attribute passes can pin the audited tree".into())
+}
+
 /// (added, removed) per path across the whole range, plus the suppressed
 /// paths where no surviving side was readable - the caller surfaces those
 /// so the semantic stage knows coverage stopped. One `git diff` parses
@@ -1437,6 +1457,7 @@ fn range_diff(
     paths: &[String],
 ) -> Result<(std::collections::HashMap<String, DiffLines>, Vec<String>), String> {
     let base = target.base.as_deref().unwrap_or(EMPTY_TREE);
+    require_attr_source(repo)?;
     // The hunk pass evaluates attributes at the audited head, matching the
     // classification pass - GIT_ATTR_SOURCE pins both to the same tree.
     let output = git_head_attr(
@@ -1668,15 +1689,16 @@ fn diff_attrs(
         file.flush()
             .and_then(|_| file.seek(SeekFrom::Start(0)))
             .map_err(|e| format!("Git could not stage the batch list: {e}"))?;
-        Command::new("git")
-            .arg("-C")
-            .arg(repo)
-            .args(["check-attr", "--source", head, "-z", "--stdin", "diff"])
-            .stdin(std::process::Stdio::from(file))
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Git could not read the review diff attributes: {e}"))
+        git_command(
+            repo,
+            &["check-attr", "--source", head, "-z", "--stdin", "diff"],
+            None,
+        )
+        .stdin(std::process::Stdio::from(file))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Git could not read the review diff attributes: {e}"))
     })();
     let mut child = match spawned {
         Ok(child) => child,
@@ -3821,6 +3843,20 @@ mod tests {
     /// suppresses - and is still recovered - at head.
     #[test]
     fn attribute_answers_come_from_the_audited_head() {
+        let version = git(std::path::Path::new("."), &["version"]);
+        let mut parts = version
+            .strip_prefix("git version ")
+            .unwrap_or(&version)
+            .split_whitespace()
+            .next()
+            .unwrap_or("0")
+            .split('.')
+            .filter_map(|p| p.parse::<u64>().ok());
+        let supported = (parts.next().unwrap_or(0), parts.next().unwrap_or(0)) >= (2, 42);
+        if !supported {
+            eprintln!("skipping: attribute pinning needs Git 2.42+, found {version}");
+            return;
+        }
         let guard = CaseDir(std::env::temp_dir().join(format!(
             "gv-attrhead-{}-{}",
             std::process::id(),

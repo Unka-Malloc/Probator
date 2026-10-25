@@ -156,11 +156,12 @@ pub(crate) fn fnmatch_regex(pattern: &str) -> Result<regex::Regex, String> {
     translated.push_str(r")\z");
     regex::Regex::new(&translated).map_err(|error| format!("invalid glob pattern: {error}"))
 }
-/// One Command builder for every git invocation: `attr` pins
+/// The one `Command::new("git")` in these modules: `attr` pins
 /// `GIT_ATTR_SOURCE` when a pass must answer attributes from the audited
-/// tree rather than the ambient index/worktree. Keeping construction in
-/// one place means the working directory, env and error surface can never
-/// drift between call sites.
+/// tree rather than the ambient index/worktree. Every git spawn in
+/// stage1 and evidence - buffered output callers, streamed bodies and
+/// streamed diffs alike - starts here, so working directory, env and
+/// attribute authority share a single construction.
 pub(crate) fn git_command(repo: &str, args: &[&str], attr: Option<&str>) -> Command {
     let mut command = Command::new("git");
     command.arg("-C").arg(repo).args(args);
@@ -204,10 +205,7 @@ fn git_output(
 }
 
 pub(crate) fn git_ok(repo: &str, args: &[&str]) -> bool {
-    Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(args)
+    git_command(repo, args, None)
         .output()
         .is_ok_and(|output| output.status.success())
 }
