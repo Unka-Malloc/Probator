@@ -1163,6 +1163,23 @@ async fn run(request: Request) -> a4aa::Result<Value> {
             let mut admitted = vec![primary.clone()];
             admitted.extend(fallbacks);
             overlay_primary(&mut document, role)?;
+            // An audit session pins each agent to its declared primary
+            // lane: `alternates` exist so an interactive VA can survive a
+            // dead transport, but inside an audit a silent lane switch
+            // would change which permission projection applies - the open
+            // patch's read-only selector only exists on serve. Failover
+            // between agents stays with the binding's own fallback chain,
+            // so the materialized registry carries no alternates and
+            // `lane_admitted`/`selector_surface` judge the same lane set.
+            for agent in document["agents"]
+                .as_object_mut()
+                .into_iter()
+                .flat_map(|agents| agents.values_mut())
+            {
+                if let Some(agent) = agent.as_object_mut() {
+                    agent.remove("alternates");
+                }
+            }
             // ACP and serve candidates arm the audit server through their
             // profile's `mcpServers`; the registry can only declare a static
             // shape there, so stamp the gate-built server — carrying this

@@ -1351,7 +1351,12 @@ fn unquote_git_path(raw: &str) -> String {
 /// blob whose hunks the attribute layer suppresses (`-diff`, `binary`)
 /// still owes the audit its real delta: a second `diff --text` pass scoped
 /// to exactly those paths recovers it, so removal rules see deleted lines
-/// and added-line rules see only what the range actually added.
+/// and added-line rules see only what the range actually added. Recovery
+/// eligibility comes from the raw oid pair - a same-oid mode-only record
+/// recovers nothing - and the only skip is a surviving side that reads as
+/// binary. Deletions and oversized blobs are not excluded: suppressing a
+/// deletion's diff must not erase its removed lines, and an unsuppressed
+/// large text change would have cost the same bytes.
 fn range_diff(
     repo: &str,
     target: &Target,
@@ -1370,12 +1375,15 @@ fn range_diff(
         ],
     )?;
     let mut diffs = parse_diff_hunks(&output.stdout);
-    // Anything the hunk pass did not name gets one recovery chance: a
-    // forced --text pass scoped to exactly those paths, and only those
-    // whose head blob is readable text - for_each_head_text already drops
-    // missing, binary and oversized blobs, so a deleted or binary path
-    // never grows an O(size) patch, and a same-oid mode-only change simply
-    // recovers no hunks and stays absent.
+    // Paths the hunk pass did not name form the recovery set. Eligibility
+    // is keyed on the blob pair from one raw pass, not on whether the head
+    // text would be scanned: a same-oid mode-only record has nothing to
+    // recover and is never read, a path the raw pass did not record is
+    // treated as changed, and a deleted or oversized blob still gets its
+    // real delta - the unsuppressed diff would have emitted the same
+    // bytes, so recovery adds no amplification class. The only case left
+    // out is a genuinely binary blob on the surviving side(s), where no
+    // usable lines exist.
     let suppressed: Vec<String> = paths
         .iter()
         .filter(|path| !diffs.contains_key(*path))
@@ -1384,11 +1392,42 @@ fn range_diff(
     if suppressed.is_empty() {
         return Ok(diffs);
     }
-    let mut readable: Vec<String> = Vec::new();
-    for_each_head_text(repo, target, &suppressed, |path, _| {
-        readable.push(path.to_string());
+    let oids = range_oids(repo, target)?;
+    let is_zero = |oid: &str| oid.bytes().all(|byte| byte == b'0');
+    let mut sides: Vec<(String, Vec<String>)> = Vec::new();
+    for path in suppressed {
+        let Some((base_oid, head_oid)) = oids.get(&path) else {
+            // Changed without a raw record: recover it rather than guess.
+            sides.push((path, Vec::new()));
+            continue;
+        };
+        if base_oid == head_oid {
+            continue;
+        }
+        let pair = [base_oid.as_str(), head_oid.as_str()]
+            .into_iter()
+            .filter(|oid| !is_zero(oid))
+            .map(str::to_string)
+            .collect();
+        sides.push((path, pair));
+    }
+    let probe: Vec<String> = sides
+        .iter()
+        .flat_map(|(_, pair)| pair.iter().cloned())
+        .collect();
+    let mut binary: std::collections::HashSet<String> = Default::default();
+    for_each_blob(repo, &probe, |index, blob| {
+        if is_binary(blob, 8000) {
+            binary.insert(probe[index].clone());
+        }
+        Ok(true)
     })?;
-    if readable.is_empty() {
+    let recover: Vec<&str> = sides
+        .iter()
+        .filter(|(_, pair)| !pair.iter().any(|oid| binary.contains(oid)))
+        .map(|(path, _)| path.as_str())
+        .collect();
+    if recover.is_empty() {
         return Ok(diffs);
     }
     let mut args: Vec<&str> = vec![
@@ -1402,11 +1441,55 @@ fn range_diff(
         &target.head,
         "--",
     ];
-    args.extend(readable.iter().map(String::as_str));
+    args.extend(recover);
     for (path, pair) in parse_diff_hunks(&git(repo, &args)?.stdout) {
         diffs.entry(path).or_insert(pair);
     }
     Ok(diffs)
+}
+
+/// Path -> (base oid, head oid) across the range from one
+/// `git diff --raw --no-renames -z` pass. The hunk stream cannot say
+/// whether a path it skipped changed its blob or only its mode; the raw
+/// record pair is the metadata-level answer and carries deleted
+/// (all-zero head) and added (all-zero base) entries explicitly. NUL
+/// delimiters keep quoted and newline-bearing names intact.
+fn range_oids(
+    repo: &str,
+    target: &Target,
+) -> Result<std::collections::HashMap<String, (String, String)>, String> {
+    let output = git(
+        repo,
+        &[
+            "diff",
+            "--raw",
+            "--no-renames",
+            "-z",
+            target.base.as_deref().unwrap_or(EMPTY_TREE),
+            &target.head,
+        ],
+    )?;
+    let mut map: std::collections::HashMap<String, (String, String)> = Default::default();
+    let mut fields = output.stdout.split(|byte| *byte == 0);
+    while let Some(metadata) = fields.next() {
+        if metadata.is_empty() {
+            continue;
+        }
+        let Some(path) = fields.next() else { break };
+        // ":<old-mode> <new-mode> <old-oid> <new-oid> <status>" - a record
+        // that cannot be parsed cannot prove the pair unchanged, so it is
+        // skipped rather than reported unchanged.
+        let metadata = String::from_utf8_lossy(metadata);
+        let parts: Vec<&str> = metadata.split_whitespace().collect();
+        if parts.len() < 5 {
+            continue;
+        }
+        map.insert(
+            String::from_utf8_lossy(path).into_owned(),
+            (parts[2].to_string(), parts[3].to_string()),
+        );
+    }
+    Ok(map)
 }
 
 /// Parse `git diff --unified=0 --no-renames` output into (added, removed)
@@ -1843,13 +1926,16 @@ fn checklist_audit(
         .cloned()
         .collect();
     let rules = line_rules();
-    // The changed-set feeds only surface classification; a contract that
-    // does not echo surfaces has no consumer for the diff. An empty set, not
-    // None, since None means "all paths are new".
-    let changed = if with_surfaces {
-        changed_paths(repo, target)?
-    } else {
+    // The caller's changed list already names every path the range
+    // touched, including deletions - a snapshot has no base, so None keeps
+    // range_touched's all-new meaning, and a contract that does not echo
+    // surfaces keeps the empty set.
+    let touched = if !with_surfaces {
         Some(Default::default())
+    } else if target.base.as_deref().is_some_and(|base| !base.is_empty()) {
+        Some(changed.iter().cloned().collect())
+    } else {
+        None
     };
 
     // Files whose mere presence or newness is the finding.
@@ -1875,7 +1961,7 @@ fn checklist_audit(
 
     // Instruction-channel changes - agent-facing directives and harness
     // wiring - are adjudicated by the semantic stage, and deletions count.
-    for path in range_touched(&changed, &paths, is_instruction_channel) {
+    for path in range_touched(&touched, &paths, is_instruction_channel) {
         surfaces.push(Hit {
             path,
             line: 1,
@@ -1910,6 +1996,35 @@ fn checklist_audit(
             }
         }
     }
+
+    // Removals that weaken protection: the line checks a deleted path's
+    // recovered delta needs exactly this, and nothing else from the head
+    // text pass.
+    let removed_rules = |path: &str, removed: &[(u64, String)]| -> Vec<Hit> {
+        let mut hits = Vec::new();
+        for (number, line) in removed {
+            if line.trim().is_empty() || line.trim_start().starts_with('#') {
+                continue;
+            }
+            let name = path.rsplit('/').next().unwrap_or(path);
+            if name == ".gitignore" && PROTECTED_IGNORE.is_match(line) {
+                hits.push(Hit {
+                    path: path.to_string(),
+                    line: *number,
+                    rule: "hardening/ignore-rule-removed".into(),
+                    remedy: remedy("hardening/ignore-rule-removed"),
+                });
+            } else if name.to_uppercase().starts_with("CODEOWNERS") {
+                hits.push(Hit {
+                    path: path.to_string(),
+                    line: *number,
+                    rule: "hardening/codeowner-removed".into(),
+                    remedy: remedy("hardening/codeowner-removed"),
+                });
+            }
+        }
+        hits
+    };
 
     // The shared range diff the caller computed already covers every
     // changed blob; texts stream through the callback, so nothing holds a
@@ -2024,28 +2139,7 @@ fn checklist_audit(
                 }
             }
         }
-        // Removals that weaken protection.
-        for (number, line) in removed {
-            if line.trim().is_empty() || line.trim_start().starts_with('#') {
-                continue;
-            }
-            let name = path.rsplit('/').next().unwrap_or(path);
-            if name == ".gitignore" && PROTECTED_IGNORE.is_match(line) {
-                regressions.push(Hit {
-                    path: path.to_string(),
-                    line: *number,
-                    rule: "hardening/ignore-rule-removed".into(),
-                    remedy: remedy("hardening/ignore-rule-removed"),
-                });
-            } else if name.to_uppercase().starts_with("CODEOWNERS") {
-                regressions.push(Hit {
-                    path: path.to_string(),
-                    line: *number,
-                    rule: "hardening/codeowner-removed".into(),
-                    remedy: remedy("hardening/codeowner-removed"),
-                });
-            }
-        }
+        regressions.extend(removed_rules(path, removed));
         // A wildcard origin is only a regression together with credentials.
         if !prose {
             let wildcard: Vec<u64> = added
@@ -2068,6 +2162,19 @@ fn checklist_audit(
             }
         }
     })?;
+    // A path deleted in the range has no head blob to stream, but its
+    // removed lines still belong to the removal rules: deleting or
+    // emptying a protection file under a suppressed diff must not slip
+    // past them. Sorted for a deterministic report.
+    let mut deleted: Vec<&String> = diffs
+        .iter()
+        .filter(|(path, (_, removed))| !removed.is_empty() && !in_tree(repo, target, path))
+        .map(|(path, _)| path)
+        .collect();
+    deleted.sort();
+    for path in deleted {
+        regressions.extend(removed_rules(path, &diffs[path].1));
+    }
     Ok((regressions, surfaces))
 }
 
@@ -2133,10 +2240,12 @@ fn regex_hits(
             })?;
         }
         _ => {
-            // added-lines / removed-lines: the range diff, numbered at the
-            // end of the range the line belongs to. `range_diff` already
-            // recovered the delta of attribute-suppressed files, so a
-            // missing entry means a same-oid mode-only change: no lines.
+            // added-lines / removed-lines: the caller's shared range diff,
+            // numbered at the end of the range the line belongs to.
+            // `range_diff` already recovered the delta of
+            // attribute-suppressed changed blobs, so a missing entry is a
+            // same-oid mode-only change or a genuinely binary blob - no
+            // usable lines either way.
             if target.scope == "range" {
                 for path in paths {
                     if let Some((added, removed)) = diffs.get(path) {
@@ -2192,12 +2301,30 @@ pub fn audit(
     let mut surfaces: Option<Vec<Hit>> = None;
     let mut status = "clean".to_string();
     let mut refused = String::new();
-    // The changed-path list and the range diff are computed once per
-    // target and shared by every regex rule and the checklist pass - a
-    // contract with many added/removed-lines rules must not respawn the
-    // same git pipeline per rule.
-    let paths = outgoing_paths(repo, target)?;
-    let diffs = if target.scope == "range" {
+    // Changed-path and diff inputs are paid for only when some rule
+    // consumes them, then shared by every regex rule and the checklist
+    // pass - a contract of prompts and non-line rules never spawns the
+    // diff pipeline at all.
+    let needs_paths = rules.iter().any(|rule| match rule.kind.as_str() {
+        "builtin" => rule.builtin.as_deref() == Some("static-checklist"),
+        "regex" => !matches!(rule.target.as_deref(), Some("revision-lines")),
+        _ => false,
+    });
+    let paths = if needs_paths {
+        outgoing_paths(repo, target)?
+    } else {
+        Vec::new()
+    };
+    let needs_diffs = target.scope == "range"
+        && rules.iter().any(|rule| {
+            rule.kind == "builtin" && rule.builtin.as_deref() == Some("static-checklist")
+                || rule.kind == "regex"
+                    && matches!(
+                        rule.target.as_deref(),
+                        Some("added-lines" | "removed-lines")
+                    )
+        });
+    let diffs = if needs_diffs {
         range_diff(repo, target, &paths)?
     } else {
         Default::default()
@@ -2910,8 +3037,9 @@ mod tests {
 
     /// A `-diff` attribute suppresses the hunk stream, so the range pass
     /// recovers the real delta with a forced `--text` diff: the added line
-    /// reports, the pre-existing trigger line does not, and a deleted
-    /// ignore rule still reaches its removal rule.
+    /// reports, the pre-existing trigger line does not, and deleting the
+    /// attributed file outright still reaches its removal rule - a
+    /// suppressed diff must not erase a deletion.
     #[test]
     fn a_diff_attributed_change_recovers_its_real_delta() {
         let guard = CaseDir(std::env::temp_dir().join(format!(
@@ -2938,7 +3066,9 @@ mod tests {
         )
         .unwrap();
         let base = commit_all(root, "base");
-        std::fs::write(root.join(".gitignore"), "keep.txt\n").unwrap();
+        // Delete the -diff-attributed ignore file entirely: it has no head
+        // blob, but the removed `*.pem` rule line must still surface.
+        std::fs::remove_file(root.join(".gitignore")).unwrap();
         std::fs::write(
             root.join("secret.py"),
             b64("eCA9IDEKYyA9IGdldCh1cmwsIHZlcmlmeSA9IEZhbHNlKQpyID0gZ2V0KHVybCwgdmVyaWZ5ID0gRmFsc2UpCg=="),

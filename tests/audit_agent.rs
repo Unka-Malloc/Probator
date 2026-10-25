@@ -237,6 +237,10 @@ impl Drop for Fixture {
 #[test]
 fn declared_document_completes_with_usage_and_role_patch() {
     let fixture = Fixture::new("complete");
+    let mut document = fixture.document();
+    document["agents"]["devin"]["alternates"] =
+        json!([{"lane": "serve", "command": {"program": "devin", "args": ["serve"]}}]);
+    fixture.write_document(&document);
     let (ok, result) = fixture.invoke();
     assert!(ok, "{result}");
     assert_eq!(result["completed"], true);
@@ -302,6 +306,16 @@ fn declared_document_completes_with_usage_and_role_patch() {
     )
     .unwrap();
     assert!(home["secrets"]["devin-api-key"].is_array());
+    // The materialized registry pins every agent to its primary lane:
+    // alternate lane specs never reach an audit session, so the open
+    // patch's permission projection cannot be sidestepped by a transport
+    // failover onto a different lane.
+    for (name, agent) in home["agents"].as_object().unwrap() {
+        assert!(
+            agent.get("alternates").is_none(),
+            "{name} kept alternates: {agent}"
+        );
+    }
 }
 
 /// The packaged registry's primary profile must name the contract's runtime
