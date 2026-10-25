@@ -4,25 +4,9 @@ version = 4
 
 [[package]]
 name = "a4aa"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4443620cfbf215274d3b77d7ef3e9590e6698c01dc5599b423ecd471dc2bb0e"
-dependencies = [
- "agent-client-protocol",
- "async-trait",
- "command-group",
- "libc",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "a4aa"
 version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f762d511b2021e55912e2917f0c81e49c53653060ea340ad08e89ec6cd574a10"
 dependencies = [
  "agent-client-protocol",
  "async-trait",
@@ -90,8 +74,10 @@ dependencies = [
 [[package]]
 name = "agents-with-profiles"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a57c1ad502bdab40bc79573b416cf21cc244af1dacd7f86084f9b1de9ab3de3"
 dependencies = [
- "a4aa 0.4.1",
+ "a4aa",
  "async-trait",
  "jiff",
  "serde",
@@ -1047,7 +1033,7 @@ checksum = "4a6394b9e965e73d0a289ee54f589087e2c676aedf60885baf52c76b771e4958"
 name = "probator"
 version = "0.1.0"
 dependencies = [
- "a4aa 0.4.0",
+ "a4aa",
  "agents-with-profiles",
  "anyhow",
  "async-trait",

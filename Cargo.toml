@@ -17,8 +17,8 @@ name = "probator-agent"
 path = "src/bin/probator-agent.rs"
 
 [dependencies]
-a4aa = "0.4.0"
-agents-with-profiles = { path = "../../Agents-With-Profiles", default-features = false }
+a4aa = "0.4.1"
+agents-with-profiles = { version = "0.2.0", default-features = false }
 async-trait = "0.1"
 anyhow = "1.0.104"
 base64 = "0.23.1"
