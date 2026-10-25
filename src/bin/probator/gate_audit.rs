@@ -110,7 +110,9 @@ fn range_env(event: &str, detail: &Map<String, Value>) -> Vec<(&'static str, Str
         None => {
             let scoped = (event == "release"
                 && env.iter().any(|(var, _)| *var == "PROBATOR_RELEASE_COMMIT"))
-                || (event == "pr" && env.iter().any(|(var, _)| *var == "PROBATOR_PR_HEAD"));
+                || (event == "pr" && env.iter().any(|(var, _)| *var == "PROBATOR_PR_HEAD"))
+                || (event == "pre-push"
+                    && env.iter().any(|(var, _)| *var == "PROBATOR_PUSH_REFS"));
             env.push((
                 "PROBATOR_EVENT",
                 if scoped { event } else { "working-tree" }.to_string(),
@@ -694,6 +696,27 @@ mod tests {
                 ("PROBATOR_RELEASE_COMMIT", "abc".to_string()),
                 ("PROBATOR_EVENT", "release".to_string()),
             ]
+        );
+        // A pre-push carrying ref lines scopes to those refs; without them it
+        // degrades to the working tree rather than pretending a range exists.
+        let detail = json!({"push_refs": "refs/heads/main a1b2 refs/heads/main c3d4"})
+            .as_object()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            range_env("pre-push", &detail),
+            vec![
+                (
+                    "PROBATOR_PUSH_REFS",
+                    "refs/heads/main a1b2 refs/heads/main c3d4".to_string()
+                ),
+                ("PROBATOR_EVENT", "pre-push".to_string()),
+            ]
+        );
+        let detail = json!({}).as_object().unwrap().clone();
+        assert_eq!(
+            range_env("pre-push", &detail),
+            vec![("PROBATOR_EVENT", "working-tree".to_string())]
         );
     }
 

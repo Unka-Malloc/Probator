@@ -356,6 +356,20 @@ fn is_public_ip(ip: std::net::IpAddr) -> bool {
     }
 }
 
+/// An address from a TUN-mode proxy's fake-ip pool: the resolver answer is a
+/// token the proxy itself maps back to the queried hostname. Connecting to an
+/// address the proxy never issued fails rather than reaching a wrong host, so
+/// accepting the pool delegates only routing, never the name's binding.
+fn is_fake_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(addr) => {
+            let o = addr.octets();
+            o[0] == 198 && (o[1] & 0xFE) == 18
+        }
+        std::net::IpAddr::V6(_) => false,
+    }
+}
+
 /// A resolver ureq hands straight to the transport: it resolves a name once,
 /// refuses the whole answer if any address is outside global unicast space,
 /// and returns the validated addresses. The transport then connects to one of
@@ -373,7 +387,15 @@ impl ureq::unversioned::resolver::Resolver for PublicResolver {
     ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
         let resolved = ureq::unversioned::resolver::DefaultResolver::default()
             .resolve(uri, config, timeout)?;
-        if resolved.iter().any(|address| !is_public_ip(address.ip())) {
+        // A TUN-mode proxy answers A lookups from its fake-ip pool
+        // (198.18.0.0/15) and maps the address back to the queried name at
+        // connect time, so such an answer still routes to the allowlisted
+        // host through the machine's own proxy. Any other non-public answer
+        // stays a refusal.
+        if resolved
+            .iter()
+            .any(|address| !is_public_ip(address.ip()) && !is_fake_ip(address.ip()))
+        {
             return Err(ureq::Error::HostNotFound);
         }
         Ok(resolved)
@@ -656,7 +678,7 @@ impl Documents {
 
 #[cfg(test)]
 mod tests {
-    use super::{Documents, direct_url, is_public_ip, page_text, redirect_allowed, resolve};
+    use super::{Documents, direct_url, is_fake_ip, is_public_ip, page_text, redirect_allowed, resolve};
     use serde_json::{Map, Value, json};
     use std::collections::HashSet;
     use std::io::{BufRead, BufReader, Write};
@@ -985,6 +1007,17 @@ mod tests {
             "ff02::1",
         ] {
             assert!(!is_public_ip(address.parse().unwrap()), "{address}");
+        }
+    }
+
+    #[test]
+    fn fake_ip_recognizes_only_the_tun_benchmark_pool() {
+        for address in ["198.18.0.1", "198.19.255.254"] {
+            assert!(is_fake_ip(address.parse().unwrap()), "{address}");
+            assert!(!is_public_ip(address.parse().unwrap()), "{address}");
+        }
+        for address in ["198.20.0.1", "198.17.255.255", "8.8.8.8", "10.0.0.1"] {
+            assert!(!is_fake_ip(address.parse().unwrap()), "{address}");
         }
     }
 
