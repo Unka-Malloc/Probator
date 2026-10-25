@@ -12,7 +12,7 @@
 //! the verdict that is already known.
 
 use crate::contract::{RULE_TARGETS, Rule};
-use crate::evidence::{EMPTY_TREE, git, git_head_attr, git_ok, suffix_of};
+use crate::evidence::{EMPTY_TREE, git, git_command, git_head_attr, git_ok, suffix_of};
 use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 use serde_json::{Value, json};
@@ -583,34 +583,35 @@ fn for_each_blob_prefix(
         return Ok(());
     };
     let mut result = Ok(());
-    for index in 0..specs.len() {
-        let Some(size) = (match batch_header(&mut out) {
-            Ok(size) => size,
+    'walk: for index in 0..specs.len() {
+        let size = match batch_header(&mut out) {
             Err(error) => {
                 result = Err(error);
-                break;
+                break 'walk;
             }
-        }) else {
-            continue;
+            Ok(None) => continue 'walk,
+            Ok(Some(size)) => size,
         };
         let need = size.min(cap);
-        let mut prefix = vec![0u8; need];
+        let mut body = vec![0u8; need];
         let drained = (size - need) as u64;
-        let read = out.read_exact(&mut prefix).and_then(|_| {
-            std::io::copy(&mut out.by_ref().take(drained), &mut std::io::sink()).map(|_| ())
-        });
         let mut newline = [0u8; 1];
-        let read = read.and_then(|_| out.read_exact(&mut newline));
+        let read = out
+            .read_exact(&mut body)
+            .and_then(|_| {
+                std::io::copy(&mut out.by_ref().take(drained), &mut std::io::sink()).map(|_| ())
+            })
+            .and_then(|_| out.read_exact(&mut newline));
         if read.is_err() {
             result = Err("Git could not read the review snapshot: truncated batch".into());
-            break;
+            break 'walk;
         }
-        match f(index, &prefix) {
+        match f(index, &body) {
             Ok(true) => {}
-            Ok(false) => break,
+            Ok(false) => break 'walk,
             Err(error) => {
                 result = Err(error);
-                break;
+                break 'walk;
             }
         }
     }
@@ -1310,12 +1311,29 @@ fn remedy(rule: &str) -> Option<&'static str> {
     })
 }
 
-/// The protection file set - the names whose removed lines and unreadable
-/// suppressions the hardening rules answer for. Every site that classifies
-/// a path as protected goes through here so none can narrow alone.
-fn is_protection_file(path: &str) -> bool {
+/// Which protection file a path is - the set whose removed lines and
+/// unreadable suppressions the hardening rules answer for. Every site
+/// that classifies a path as protected goes through `protection_kind` so
+/// the set can never narrow on one side alone.
+#[derive(Clone, Copy)]
+enum ProtectionKind {
+    Ignore,
+    Codeowners,
+}
+
+fn protection_kind(path: &str) -> Option<ProtectionKind> {
     let name = path.rsplit('/').next().unwrap_or(path);
-    name == ".gitignore" || name.to_uppercase().starts_with("CODEOWNERS")
+    if name == ".gitignore" {
+        Some(ProtectionKind::Ignore)
+    } else if name.to_uppercase().starts_with("CODEOWNERS") {
+        Some(ProtectionKind::Codeowners)
+    } else {
+        None
+    }
+}
+
+fn is_protection_file(path: &str) -> bool {
+    protection_kind(path).is_some()
 }
 
 fn is_prose(path: &str) -> bool {
@@ -1434,18 +1452,18 @@ fn range_diff(
         &target.head,
     )?;
     let mut diffs = parse_diff_hunks(&output.stdout);
-    // Paths the hunk pass did not name form the recovery set, keyed on
-    // the raw oid pair: a same-oid record is a mode-only change with
-    // nothing to recover and is skipped before any blob is read, a path
-    // the raw pass did not record is recovered unconditionally rather
-    // than guessed at, and a real oid pair goes on to the attribute
-    // split below.
-    let suppressed: Vec<String> = paths
-        .iter()
-        .filter(|path| !diffs.contains_key(*path))
-        .cloned()
-        .collect();
-    if suppressed.is_empty() {
+    // Paths the hunk pass named keep their parsed hunks; the rest split
+    // by their raw oid pair - a same-oid record is a mode-only change
+    // skipped before any blob is read, a path the raw pass did not
+    // record is recovered unconditionally rather than guessed at, and a
+    // real oid pair goes on to the attribute split below.
+    let mut candidates: Vec<String> = Vec::new();
+    for path in paths {
+        if !diffs.contains_key(path.as_str()) {
+            candidates.push(path.clone());
+        }
+    }
+    if candidates.is_empty() {
         return Ok((diffs, Vec::new()));
     }
     let oids = range_oids(repo, target)?;
@@ -1455,8 +1473,8 @@ fn range_diff(
     let mut sides: Vec<(String, String, String)> = Vec::new();
     let mut recover: Vec<String> = Vec::new();
     let mut gating: std::collections::HashMap<String, (bool, bool)> = Default::default();
-    for path in suppressed {
-        match oids.get(&path) {
+    for path in candidates {
+        match oids.get(path.as_str()) {
             // Changed without a raw record: recover rather than guess.
             None => {
                 gating.insert(path.clone(), (true, true));
@@ -1543,11 +1561,7 @@ fn range_diff(
         "--",
     ];
     args.extend(recover.iter().map(String::as_str));
-    let mut child = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(&args)
-        .env("GIT_ATTR_SOURCE", &target.head)
+    let mut child = git_command(repo, &args, Some(target.head.as_str()))
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -2387,21 +2401,24 @@ fn checklist_audit(
             if line.trim().is_empty() || line.trim_start().starts_with('#') {
                 continue;
             }
-            let name = path.rsplit('/').next().unwrap_or(path);
-            if name == ".gitignore" && PROTECTED_IGNORE.is_match(line) {
-                hits.push(Hit {
-                    path: path.to_string(),
-                    line: *number,
-                    rule: "hardening/ignore-rule-removed".into(),
-                    remedy: remedy("hardening/ignore-rule-removed"),
-                });
-            } else if name.to_uppercase().starts_with("CODEOWNERS") {
-                hits.push(Hit {
-                    path: path.to_string(),
-                    line: *number,
-                    rule: "hardening/codeowner-removed".into(),
-                    remedy: remedy("hardening/codeowner-removed"),
-                });
+            match protection_kind(path) {
+                Some(ProtectionKind::Ignore) if PROTECTED_IGNORE.is_match(line) => {
+                    hits.push(Hit {
+                        path: path.to_string(),
+                        line: *number,
+                        rule: "hardening/ignore-rule-removed".into(),
+                        remedy: remedy("hardening/ignore-rule-removed"),
+                    });
+                }
+                Some(ProtectionKind::Codeowners) => {
+                    hits.push(Hit {
+                        path: path.to_string(),
+                        line: *number,
+                        rule: "hardening/codeowner-removed".into(),
+                        remedy: remedy("hardening/codeowner-removed"),
+                    });
+                }
+                _ => {}
             }
         }
         hits
@@ -3795,6 +3812,56 @@ mod tests {
                 .count(),
             1,
             "an unreadable ordinary suppression is surfaced"
+        );
+    }
+
+    /// Attribute authority is the audited tree, not the checkout: an
+    /// uncommitted `.gitattributes` cannot suppress the audited delta,
+    /// and a committed `-diff` deleted only in the worktree still
+    /// suppresses - and is still recovered - at head.
+    #[test]
+    fn attribute_answers_come_from_the_audited_head() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-attrhead-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join("tracked.txt"), "alpha\n").unwrap();
+        let base = commit_all(root, "base");
+        // Head carries the text change but no attributes; a -diff that
+        // exists only in the dirty worktree afterwards must not suppress
+        // the audited delta.
+        std::fs::write(root.join("tracked.txt"), "alpha\nbeta\n").unwrap();
+        let head = commit_all(root, "head");
+        std::fs::write(root.join(".gitattributes"), "tracked.txt -diff\n").unwrap();
+        let target = range_target(base.clone(), head.clone());
+        let paths = outgoing_paths(root.to_str().unwrap(), &target).unwrap();
+        let (diffs, _) = range_diff(root.to_str().unwrap(), &target, &paths).unwrap();
+        assert!(
+            diffs
+                .get("tracked.txt")
+                .is_some_and(|pair| !pair.0.is_empty()),
+            "an attribute the audited tree never committed cannot hide the delta"
+        );
+        // Inverse: commit the -diff at the new head, then delete it from
+        // the worktree only - head still suppresses, and recovery still
+        // answers with the real delta.
+        let base2 = head;
+        std::fs::write(root.join("tracked.txt"), "alpha\nbeta\ngamma\n").unwrap();
+        let head2 = commit_all(root, "head2");
+        std::fs::remove_file(root.join(".gitattributes")).unwrap();
+        let target2 = range_target(base2, head2);
+        let paths2 = outgoing_paths(root.to_str().unwrap(), &target2).unwrap();
+        let (diffs2, _) = range_diff(root.to_str().unwrap(), &target2, &paths2).unwrap();
+        assert!(
+            diffs2
+                .get("tracked.txt")
+                .is_some_and(|pair| !pair.0.is_empty()),
+            "head's committed -diff suppresses and is recovered even when the worktree deletes it"
         );
     }
 

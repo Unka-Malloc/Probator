@@ -156,34 +156,45 @@ pub(crate) fn fnmatch_regex(pattern: &str) -> Result<regex::Regex, String> {
     translated.push_str(r")\z");
     regex::Regex::new(&translated).map_err(|error| format!("invalid glob pattern: {error}"))
 }
-pub(crate) fn git(repo: &str, args: &[&str]) -> Result<std::process::Output, String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(args)
-        .output()
-        .map_err(|error| format!("Git could not read the review snapshot: {error}"))?;
-    if !output.status.success() {
-        return Err("Git could not read the review snapshot".to_string());
+/// One Command builder for every git invocation: `attr` pins
+/// `GIT_ATTR_SOURCE` when a pass must answer attributes from the audited
+/// tree rather than the ambient index/worktree. Keeping construction in
+/// one place means the working directory, env and error surface can never
+/// drift between call sites.
+pub(crate) fn git_command(repo: &str, args: &[&str], attr: Option<&str>) -> Command {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(repo).args(args);
+    if let Some(head) = attr {
+        command.env("GIT_ATTR_SOURCE", head);
     }
-    Ok(output)
+    command
+}
+
+pub(crate) fn git(repo: &str, args: &[&str]) -> Result<std::process::Output, String> {
+    git_output(repo, args, None)
 }
 
 /// `git` with the attribute source pinned to the audited tree: the review
-/// object is the head commit, so attribute answers come from `GIT_ATTR_SOURCE`
-/// rather than whatever the index and worktree happen to hold. On a Git
-/// too old for the variable the setting is ignored and the ambient state
-/// answers - which is still one authority shared by every pass.
+/// object is the head commit, so attribute answers come from
+/// `GIT_ATTR_SOURCE` (honored by Git 2.42+) rather than whatever the
+/// index and worktree happen to hold. On an older Git the variable is
+/// ignored and the ambient state answers; `check-attr --source` needs
+/// Git 2.40 and fails closed below that floor, so the pair diverges only
+/// on 2.40-2.41 against a worktree whose attributes differ from head's.
 pub(crate) fn git_head_attr(
     repo: &str,
     args: &[&str],
     head: &str,
 ) -> Result<std::process::Output, String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(args)
-        .env("GIT_ATTR_SOURCE", head)
+    git_output(repo, args, Some(head))
+}
+
+fn git_output(
+    repo: &str,
+    args: &[&str],
+    attr: Option<&str>,
+) -> Result<std::process::Output, String> {
+    let output = git_command(repo, args, attr)
         .output()
         .map_err(|error| format!("Git could not read the review snapshot: {error}"))?;
     if !output.status.success() {
