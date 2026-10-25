@@ -443,6 +443,28 @@ fn inadmissible_roles_and_bindings_never_spawn_va() {
     assert!(!fixture.spawned(), "{result}");
 }
 
+/// A binding whose candidates span a selector lane (serve) and a
+/// non-selector lane cannot take one consistent `read-only` projection, so
+/// the run refuses before `va` is spawned. The fallback entry is written in
+/// its object form on purpose: a reader that only accepts string entries
+/// would drop it and judge the mix wrong.
+#[test]
+fn a_mixed_lane_binding_is_refused_before_va_spawns() {
+    let fixture = Fixture::new("complete");
+    let mut document = fixture.document();
+    document["agents"]["devin"]["lane"] = json!("serve");
+    document["bindings"]["audit"]["fallbacks"] =
+        json!([{"profile": "synthetic-reviewer-devin"}, "synthetic-reviewer-pi"]);
+    fixture.write_document(&document);
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(
+        result["failure"]["code"], "audit_binding_lanes_mixed",
+        "{result}"
+    );
+    assert!(!fixture.spawned(), "{result}");
+}
+
 #[test]
 fn same_agent_models_are_overlaid_for_va_not_stepped_by_probator() {
     let fixture = Fixture::new("complete");

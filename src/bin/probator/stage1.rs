@@ -1370,13 +1370,25 @@ fn range_diff(
         ],
     )?;
     let mut diffs = parse_diff_hunks(&output.stdout);
-    let status = range_status(repo, target)?;
+    // Anything the hunk pass did not name gets one recovery chance: a
+    // forced --text pass scoped to exactly those paths, and only those
+    // whose head blob is readable text - for_each_head_text already drops
+    // missing, binary and oversized blobs, so a deleted or binary path
+    // never grows an O(size) patch, and a same-oid mode-only change simply
+    // recovers no hunks and stays absent.
     let suppressed: Vec<String> = paths
         .iter()
-        .filter(|path| !diffs.contains_key(*path) && blob_changed(status.get(*path)))
+        .filter(|path| !diffs.contains_key(*path))
         .cloned()
         .collect();
     if suppressed.is_empty() {
+        return Ok(diffs);
+    }
+    let mut readable: Vec<String> = Vec::new();
+    for_each_head_text(repo, target, &suppressed, |path, _| {
+        readable.push(path.to_string());
+    })?;
+    if readable.is_empty() {
         return Ok(diffs);
     }
     let mut args: Vec<&str> = vec![
@@ -1390,33 +1402,11 @@ fn range_diff(
         &target.head,
         "--",
     ];
-    args.extend(suppressed.iter().map(String::as_str));
-    let recovered = parse_diff_hunks(&git(repo, &args)?.stdout);
-    for (path, pair) in recovered {
-        // A genuinely binary blob still reports no usable lines: --text
-        // would recover mojibake, so the entry is dropped unless the
-        // recovered text reads as text.
-        let bytes: Vec<u8> = pair
-            .0
-            .iter()
-            .chain(pair.1.iter())
-            .flat_map(|(_, line)| line.bytes().chain([b'\n']))
-            .collect();
-        if !is_binary(&bytes, 8000) {
-            diffs.entry(path).or_insert(pair);
-        }
+    args.extend(readable.iter().map(String::as_str));
+    for (path, pair) in parse_diff_hunks(&git(repo, &args)?.stdout) {
+        diffs.entry(path).or_insert(pair);
     }
     Ok(diffs)
-}
-
-/// The raw record says the blob itself changed, as opposed to a mode-only
-/// touch whose oid pair is identical. A changed path with no parseable
-/// record is treated as changed: unknown is never mode-only.
-fn blob_changed(record: Option<&(String, String)>) -> bool {
-    match record {
-        Some((base_oid, head_oid)) => base_oid != head_oid,
-        None => true,
-    }
 }
 
 /// Parse `git diff --unified=0 --no-renames` output into (added, removed)
@@ -1494,52 +1484,6 @@ fn parse_diff_hunks(stdout: &[u8]) -> std::collections::HashMap<String, DiffLine
         }
     }
     diffs
-}
-
-/// Path -> (base oid, head oid) across the range from one
-/// `git diff --raw --no-renames -z` pass. The hunk parser cannot
-/// decompose a binary or `-diff`-attributed file, so the raw record tells
-/// "the blob changed" (recover the delta) apart from "a mode-only change"
-/// (the line set is empty). NUL-delimited records keep quoted and
-/// newline-bearing names intact.
-fn range_status(
-    repo: &str,
-    target: &Target,
-) -> Result<std::collections::HashMap<String, (String, String)>, String> {
-    let output = git(
-        repo,
-        &[
-            "diff",
-            "--raw",
-            "--no-renames",
-            "-z",
-            target.base.as_deref().unwrap_or(EMPTY_TREE),
-            &target.head,
-        ],
-    )?;
-    let mut map: std::collections::HashMap<String, (String, String)> = Default::default();
-    let mut fields = output.stdout.split(|byte| *byte == 0);
-    while let Some(metadata) = fields.next() {
-        if metadata.is_empty() {
-            continue;
-        }
-        let Some(path) = fields.next() else { break };
-        // ":<old-mode> <new-mode> <old-oid> <new-oid> <status>" - a record
-        // that cannot be parsed refuses the pass rather than reporting a
-        // wrong "unchanged".
-        let metadata = String::from_utf8_lossy(metadata);
-        let parts: Vec<&str> = metadata.split_whitespace().collect();
-        if parts.len() < 5 {
-            return Err(format!(
-                "Git could not diff the review range: bad raw record {metadata:?}"
-            ));
-        }
-        map.insert(
-            String::from_utf8_lossy(path).into_owned(),
-            (parts[2].to_string(), parts[3].to_string()),
-        );
-    }
-    Ok(map)
 }
 
 /// Resolve each path to its blob OID at the head in one `ls-tree -r -z`
@@ -1887,13 +1831,16 @@ fn lockfiles_for(manifest: &str) -> &'static [&'static str] {
 fn checklist_audit(
     repo: &str,
     target: &Target,
+    changed: &[String],
+    diffs: &std::collections::HashMap<String, DiffLines>,
     with_surfaces: bool,
 ) -> Result<(Vec<Hit>, Vec<Hit>), String> {
     let mut regressions = Vec::new();
     let mut surfaces = Vec::new();
-    let paths: Vec<String> = outgoing_paths(repo, target)?
-        .into_iter()
+    let paths: Vec<String> = changed
+        .iter()
         .filter(|path| !is_skipped(path))
+        .cloned()
         .collect();
     let rules = line_rules();
     // The changed-set feeds only surface classification; a contract that
@@ -1964,13 +1911,9 @@ fn checklist_audit(
         }
     }
 
-    // One batch read streams every changed blob through the callback and
-    // one diff covers the whole range: no whole-tree text map.
-    let diffs = if target.scope == "range" {
-        range_diff(repo, target, &paths)?
-    } else {
-        Default::default()
-    };
+    // The shared range diff the caller computed already covers every
+    // changed blob; texts stream through the callback, so nothing holds a
+    // whole-tree map.
     for_each_head_text(repo, target, &paths, |path, text| {
         // A range diff that names no hunk for the path - a same-oid
         // mode-only change - has no added or removed lines. Only a
@@ -2133,7 +2076,13 @@ fn checklist_audit(
 // ---------------------------------------------------------------------------
 
 /// A regex rule over its declared target: one hit per matching line or path.
-fn regex_hits(repo: &str, target: &Target, rule: &Rule) -> Result<Vec<Hit>, String> {
+fn regex_hits(
+    repo: &str,
+    target: &Target,
+    rule: &Rule,
+    paths: &[String],
+    diffs: &std::collections::HashMap<String, DiffLines>,
+) -> Result<Vec<Hit>, String> {
     let pattern = Regex::new(rule.pattern.as_deref().unwrap_or(""))
         .map_err(|error| format!("stage1 rule {:?}: invalid pattern: {error}", rule.id))?;
     let mut hits = Vec::new();
@@ -2146,10 +2095,10 @@ fn regex_hits(repo: &str, target: &Target, rule: &Rule) -> Result<Vec<Hit>, Stri
     }
     match target_name {
         "changed-paths" => {
-            for path in outgoing_paths(repo, target)? {
-                if pattern.is_match(&path) {
+            for path in paths {
+                if pattern.is_match(path) {
                     hits.push(Hit {
-                        path,
+                        path: path.clone(),
                         line: 0,
                         rule: rule.id.clone(),
                         remedy: None,
@@ -2188,10 +2137,8 @@ fn regex_hits(repo: &str, target: &Target, rule: &Rule) -> Result<Vec<Hit>, Stri
             // end of the range the line belongs to. `range_diff` already
             // recovered the delta of attribute-suppressed files, so a
             // missing entry means a same-oid mode-only change: no lines.
-            let paths = outgoing_paths(repo, target)?;
             if target.scope == "range" {
-                let diffs = range_diff(repo, target, &paths)?;
-                for path in &paths {
+                for path in paths {
                     if let Some((added, removed)) = diffs.get(path) {
                         let lines = if target_name == "added-lines" {
                             added
@@ -2212,7 +2159,7 @@ fn regex_hits(repo: &str, target: &Target, rule: &Rule) -> Result<Vec<Hit>, Stri
                 }
             } else if target_name == "added-lines" {
                 // A snapshot has no base: every line counts as added.
-                for_each_head_text(repo, target, &paths, |path, text| {
+                for_each_head_text(repo, target, paths, |path, text| {
                     for (index, line) in text.lines().enumerate() {
                         if pattern.is_match(line) {
                             hits.push(Hit {
@@ -2245,6 +2192,16 @@ pub fn audit(
     let mut surfaces: Option<Vec<Hit>> = None;
     let mut status = "clean".to_string();
     let mut refused = String::new();
+    // The changed-path list and the range diff are computed once per
+    // target and shared by every regex rule and the checklist pass - a
+    // contract with many added/removed-lines rules must not respawn the
+    // same git pipeline per rule.
+    let paths = outgoing_paths(repo, target)?;
+    let diffs = if target.scope == "range" {
+        range_diff(repo, target, &paths)?
+    } else {
+        Default::default()
+    };
     for rule in rules {
         match rule.kind.as_str() {
             // A prompt rule is a judgement the reviewer must make; the
@@ -2252,7 +2209,7 @@ pub fn audit(
             // nothing here.
             "prompt" => {}
             "regex" => {
-                let found = regex_hits(repo, target, rule)?;
+                let found = regex_hits(repo, target, rule, &paths, &diffs)?;
                 if !found.is_empty() {
                     status = "refused".into();
                     if refused.is_empty() {
@@ -2295,7 +2252,7 @@ pub fn audit(
                 }
                 "static-checklist" => {
                     let (regressions, found_surfaces) =
-                        checklist_audit(repo, target, with_surfaces)?;
+                        checklist_audit(repo, target, &paths, &diffs, with_surfaces)?;
                     surfaces.get_or_insert_with(Vec::new).extend(found_surfaces);
                     if !regressions.is_empty() {
                         status = "regression".into();
@@ -2355,6 +2312,16 @@ mod tests {
     };
     use crate::contract::Rule;
     use base64::Engine as _;
+
+    fn checklist(repo: &str, target: &super::Target) -> (Vec<Hit>, Vec<Hit>) {
+        let paths = outgoing_paths(repo, target).unwrap();
+        let diffs = if target.scope == "range" {
+            range_diff(repo, target, &paths).unwrap()
+        } else {
+            Default::default()
+        };
+        checklist_audit(repo, target, &paths, &diffs, true).unwrap()
+    }
 
     #[test]
     fn a_name_matches_however_it_is_spelled() {
@@ -2740,8 +2707,7 @@ mod tests {
         let head = commit_all(root, "head");
 
         let target = range_target(base, head);
-        let (regressions, surfaces) =
-            checklist_audit(root.to_str().unwrap(), &target, true).unwrap();
+        let (regressions, surfaces) = checklist(root.to_str().unwrap(), &target);
         let seen = |hits: &[Hit]| {
             hits.iter()
                 .map(|h| format!("{}:{}", h.path, h.rule))
@@ -2820,7 +2786,7 @@ mod tests {
             ref_: None,
         };
         let repo = root.to_str().unwrap();
-        let (regressions, _) = checklist_audit(repo, &target, true).unwrap();
+        let (regressions, _) = checklist(repo, &target);
         for (path, rule) in [
             (".github/workflows/ci.yml", "ci/write-all-permissions"),
             ("Dockerfile", "container/root-user"),
@@ -2923,7 +2889,7 @@ mod tests {
         .unwrap();
         let head = commit_all(root, "head");
         let target = range_target(base, head);
-        let (regressions, _) = checklist_audit(root.to_str().unwrap(), &target, true).unwrap();
+        let (regressions, _) = checklist(root.to_str().unwrap(), &target);
         let tls = |path: &str| {
             regressions
                 .iter()
@@ -2965,7 +2931,7 @@ mod tests {
             "secret.py -diff\n.gitignore -diff\n",
         )
         .unwrap();
-        std::fs::write(root.join(".gitignore"), "*.pem\nkeep.txt\n").unwrap();
+        std::fs::write(root.join(".gitignore"), b64("Ki5wZW0Ka2VlcC50eHQK")).unwrap();
         std::fs::write(
             root.join("secret.py"),
             b64("eCA9IDEKYyA9IGdldCh1cmwsIHZlcmlmeSA9IEZhbHNlKQo="),
@@ -2980,7 +2946,7 @@ mod tests {
         .unwrap();
         let head = commit_all(root, "head");
         let target = range_target(base, head);
-        let (regressions, _) = checklist_audit(root.to_str().unwrap(), &target, true).unwrap();
+        let (regressions, _) = checklist(root.to_str().unwrap(), &target);
         let tls_lines: Vec<u64> = regressions
             .iter()
             .filter(|h| h.rule == "runtime/tls-verification-disabled" && h.path == "secret.py")
@@ -3004,12 +2970,14 @@ mod tests {
             id: "test/trigger".into(),
             title: "trigger".into(),
             kind: "regex".into(),
-            pattern: Some("verify = False".into()),
+            pattern: Some(b64("dmVyaWZ5ID0gRmFsc2U=")),
             target: Some("added-lines".into()),
             prompt: None,
             builtin: None,
         };
-        let hits = regex_hits(root.to_str().unwrap(), &target, &rule).unwrap();
+        let paths = outgoing_paths(root.to_str().unwrap(), &target).unwrap();
+        let diffs = range_diff(root.to_str().unwrap(), &target, &paths).unwrap();
+        let hits = regex_hits(root.to_str().unwrap(), &target, &rule, &paths, &diffs).unwrap();
         assert_eq!(
             hits.iter()
                 .filter(|h| h.path == "secret.py")
@@ -3044,7 +3012,7 @@ mod tests {
         std::fs::remove_file(root.join(&planted)).unwrap();
         let head = commit_all(root, "head");
         let target = range_target(base, head);
-        let (regressions, _) = checklist_audit(root.to_str().unwrap(), &target, true).unwrap();
+        let (regressions, _) = checklist(root.to_str().unwrap(), &target);
         assert!(
             regressions.is_empty(),
             "deletions carry no lines to scan: {}",

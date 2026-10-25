@@ -483,28 +483,19 @@ enum SelectorSurface {
 }
 
 fn selector_surface(document: &Value, binding: &str) -> SelectorSurface {
-    let entry = &document["bindings"][binding];
-    let mut profiles: Vec<&str> = Vec::new();
-    if let Some(primary) = entry["profile"].as_str() {
-        profiles.push(primary);
-    }
-    profiles.extend(
-        entry["fallbacks"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str),
-    );
-    let selector = profiles
+    let (primary, fallbacks) =
+        crate::checker_binding::binding_profiles(&document["bindings"][binding]);
+    let candidates: Vec<&String> = primary.iter().chain(&fallbacks).collect();
+    let selector = candidates
         .iter()
         .filter(|profile| {
-            let agent = document["profiles"][**profile]["agent"]
+            let agent = document["profiles"][profile.as_str()]["agent"]
                 .as_str()
                 .unwrap_or("");
             document["agents"][agent]["lane"].as_str() == Some("serve")
         })
         .count();
-    match (selector, profiles.len()) {
+    match (selector, candidates.len()) {
         (0, _) => SelectorSurface::None,
         (all, total) if all == total && total > 0 => SelectorSurface::All,
         _ => SelectorSurface::Mixed,
@@ -1210,6 +1201,21 @@ async fn run(request: Request) -> a4aa::Result<Value> {
             )
         }
     };
+    // Every admissible candidate already declares `permission: "read-only"`.
+    // On lanes with a permission selector that declaration must also reach
+    // the session through the open patch; on RPC/ACP the profile carries it
+    // natively. A binding that mixes the two cannot be projected one way
+    // without breaking the other lane, so it refuses here - before `va` is
+    // even spawned.
+    let read_only_patch = match selector_surface(&document, &binding) {
+        SelectorSurface::All => true,
+        SelectorSurface::None => false,
+        SelectorSurface::Mixed => {
+            return Err(failure("audit_binding_lanes_mixed", "agent/open").with_detail(
+                "binding mixes selector and non-selector lanes; no single open patch can project read-only to all candidates",
+            ));
+        }
+    };
     // For RPC agents like pi that discover project-local MCP servers from
     // .pi/mcp.json, materialize the tool server definition into the run
     // directory. The session/open patch carries the same servers for VA. An
@@ -1288,19 +1294,8 @@ async fn run(request: Request) -> a4aa::Result<Value> {
         "skillReferences": [],
         "mode": null,
     });
-    // Every admissible candidate already declares `permission: "read-only"`.
-    // On lanes with a selector that declaration must also reach the session
-    // through the open patch; on RPC/ACP the profile carries it natively. A
-    // binding that mixes the two cannot be projected one way without
-    // breaking the other lane, so it refuses before `va` starts.
-    match selector_surface(&document, &binding) {
-        SelectorSurface::All => patch["permission"] = json!("read-only"),
-        SelectorSurface::None => {}
-        SelectorSurface::Mixed => {
-            return Err(failure("audit_binding_lanes_mixed", "agent/open").with_detail(
-                "binding mixes selector and non-selector lanes; no single open patch can project read-only to all candidates",
-            ));
-        }
+    if read_only_patch {
+        patch["permission"] = json!("read-only");
     }
     let open_params = |resume: Option<&str>| {
         let mut params = json!({
@@ -1611,6 +1606,24 @@ mod tests {
                 SelectorSurface::Mixed
             ));
         }
+        // The short `"audit": "p0"` form resolves through the same shared
+        // reader: a serve primary still counts and still stamps the patch.
+        let mut short = document(&["serve"], &[]);
+        short["bindings"]["audit"] = json!("p0");
+        assert!(matches!(
+            selector_surface(&short, "audit"),
+            SelectorSurface::All
+        ));
+        // An object-shaped fallback `{ "profile": ... }` is a candidate
+        // too - a reader that only accepts string entries would drop it
+        // and misjudge an all-serve binding as mixed, or a mixed one as
+        // uniform.
+        let mut object = document(&["serve", "rpc"], &[]);
+        object["bindings"]["audit"]["fallbacks"] = json!([{"profile": "p1"}]);
+        assert!(matches!(
+            selector_surface(&object, "audit"),
+            SelectorSurface::Mixed
+        ));
     }
 
     /// Representative `permission/request` params run through the same
