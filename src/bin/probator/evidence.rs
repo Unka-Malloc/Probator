@@ -169,6 +169,29 @@ pub(crate) fn git(repo: &str, args: &[&str]) -> Result<std::process::Output, Str
     Ok(output)
 }
 
+/// `git` with the attribute source pinned to the audited tree: the review
+/// object is the head commit, so attribute answers come from `GIT_ATTR_SOURCE`
+/// rather than whatever the index and worktree happen to hold. On a Git
+/// too old for the variable the setting is ignored and the ambient state
+/// answers - which is still one authority shared by every pass.
+pub(crate) fn git_head_attr(
+    repo: &str,
+    args: &[&str],
+    head: &str,
+) -> Result<std::process::Output, String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .env("GIT_ATTR_SOURCE", head)
+        .output()
+        .map_err(|error| format!("Git could not read the review snapshot: {error}"))?;
+    if !output.status.success() {
+        return Err("Git could not read the review snapshot".to_string());
+    }
+    Ok(output)
+}
+
 pub(crate) fn git_ok(repo: &str, args: &[&str]) -> bool {
     Command::new("git")
         .arg("-C")
