@@ -17,7 +17,6 @@ use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::LazyLock;
 
 /// One review target: the whole tree at an immutable head commit. The
@@ -235,10 +234,7 @@ fn ls_tree_entries(repo: &str, tree: &str) -> Result<Vec<(String, String, String
 /// `owner/name` parsed from the origin remote. A remote that is a local path
 /// is not a repository any name can identify.
 fn origin_slug(repo: &str) -> String {
-    let remote = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["remote", "get-url", "origin"])
+    let remote = git_command(repo, &["remote", "get-url", "origin"], None)
         .output()
         .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
         .unwrap_or_default();
@@ -580,10 +576,12 @@ fn for_each_blob_prefix(
         return Ok(());
     };
     let mut result = Ok(());
+    let mut walked_all = true;
     'walk: for index in 0..specs.len() {
         let size = match batch_header(&mut out) {
             Err(error) => {
                 result = Err(error);
+                walked_all = false;
                 break 'walk;
             }
             Ok(None) => continue 'walk,
@@ -601,19 +599,43 @@ fn for_each_blob_prefix(
             .and_then(|_| out.read_exact(&mut newline));
         if read.is_err() {
             result = Err("Git could not read the review snapshot: truncated batch".into());
+            walked_all = false;
             break 'walk;
         }
         match f(index, &body) {
             Ok(true) => {}
-            Ok(false) => break 'walk,
+            Ok(false) => {
+                walked_all = false;
+                break 'walk;
+            }
             Err(error) => {
                 result = Err(error);
+                walked_all = false;
                 break 'walk;
             }
         }
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    if walked_all {
+        // Every reply was consumed, so the spec file's EOF retires the
+        // child on its own - wait for an honest status rather than kill
+        // a process that already finished.
+        match child.wait() {
+            Ok(status) if status.success() => {}
+            Ok(status) => {
+                result = Err(format!(
+                    "Git could not read the review snapshot: exit {status}"
+                ));
+            }
+            Err(e) => {
+                result = Err(format!("Git could not read the review snapshot: {e}"));
+            }
+        }
+    } else {
+        // An early exit can leave the child mid-write on output nobody
+        // will read; kill it, then reap.
+        let _ = child.kill();
+        let _ = child.wait();
+    }
     let _ = std::fs::remove_file(&list);
     result
 }
@@ -1404,24 +1426,37 @@ fn unquote_git_path(raw: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// `GIT_ATTR_SOURCE` needs Git 2.42 - below that the variable is silently
-/// ignored and an ambient `.gitattributes` could suppress a path the head
-/// classification says is plain text, splitting the two passes' authority.
-/// Fail the range audit closed rather than audit on a divergent source.
-fn require_attr_source(repo: &str) -> Result<(), String> {
-    let output = git(repo, &["version"])?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut parts = text
+/// The attribute-pinning floor: `GIT_ATTR_SOURCE` is honored by Git
+/// 2.42+, so below it the variable would be silently ignored and an
+/// ambient `.gitattributes` could suppress a path the head
+/// classification calls plain text - a divergent authority. The floor
+/// is a named constant so callers, docs and tests agree on one value.
+const ATTR_SOURCE_FLOOR: (u64, u64) = (2, 42);
+
+/// `(major, minor)` out of a `git version` line, or None when the output
+/// is not a version string at all.
+fn parse_git_version(text: &str) -> Option<(u64, u64)> {
+    let version = text
         .trim()
-        .strip_prefix("git version ")
-        .unwrap_or("")
+        .strip_prefix("git version ")?
         .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .split('.')
-        .filter_map(|part| part.parse::<u64>().ok());
-    let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
-    if (major, minor) >= (2, 42) {
+        .next()?;
+    let mut parts = version.split('.').filter_map(|p| p.parse::<u64>().ok());
+    Some((parts.next()?, parts.next()?))
+}
+
+/// Whether this git honors `GIT_ATTR_SOURCE` - the single capability
+/// question both the production gate and the test guards ask.
+fn attr_source_supported(repo: &str) -> Result<bool, String> {
+    let output = git(repo, &["version"])?;
+    Ok(parse_git_version(&String::from_utf8_lossy(&output.stdout))
+        .is_some_and(|version| version >= ATTR_SOURCE_FLOOR))
+}
+
+/// Fail the range audit closed rather than audit on a divergent
+/// attribute source.
+fn require_attr_source(repo: &str) -> Result<(), String> {
+    if attr_source_supported(repo)? {
         return Ok(());
     }
     Err("Git could not read the review snapshot: range audits need Git 2.42+ so attribute passes can pin the audited tree".into())
@@ -1648,16 +1683,30 @@ fn batch_check(repo: &str, specs: &[&str], format: &str) -> Result<String, Strin
         file.flush()
             .and_then(|_| file.seek(SeekFrom::Start(0)))
             .map_err(|e| format!("Git could not stage the batch list: {e}"))?;
-        Command::new("git")
-            .arg("-C")
-            .arg(repo)
-            .args(["cat-file", &format!("--batch-check={format}")])
-            .stdin(std::process::Stdio::from(file))
-            .output()
-            .map_err(|e| format!("Git could not read the review snapshot: {e}"))
+        git_command(
+            repo,
+            &["cat-file", &format!("--batch-check={format}")],
+            None,
+        )
+        .stdin(std::process::Stdio::from(file))
+        .output()
+        .map_err(|e| format!("Git could not read the review snapshot: {e}"))
     })();
     let _ = std::fs::remove_file(&list);
-    Ok(String::from_utf8_lossy(&output?.stdout).into_owned())
+    let output = output?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "Git could not read the review snapshot: exit {}{}",
+            output.status,
+            if stderr.trim().is_empty() {
+                String::new()
+            } else {
+                format!(" - {}", stderr.trim())
+            }
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// The `diff` attribute state per path at the audited head, in one
@@ -1935,14 +1984,16 @@ impl<F: Fn(&str, bool) -> bool> DiffParser<F> {
     }
 
     /// One raw output line: bytes decode lossily and the terminator
-    /// comes off the way `str::lines` strips it - `\n`, then a CRLF
-    /// `\r` - so hunk text reaching `keep` never carries a terminator
-    /// and a recovered binary line cannot wedge the stream on invalid
-    /// UTF-8.
+    /// comes off the way `str::lines` strips it - `\r` only when it
+    /// preceded the `\n` - so hunk text reaching `keep` never carries a
+    /// terminator and a recovered binary line cannot wedge the stream on
+    /// invalid UTF-8.
     fn feed_raw(&mut self, raw: &[u8]) {
         let text = String::from_utf8_lossy(raw);
-        let line = text.strip_suffix('\n').unwrap_or(&text);
-        let line = line.strip_suffix('\r').unwrap_or(line);
+        let line = match text.strip_suffix('\n') {
+            Some(line) => line.strip_suffix('\r').unwrap_or(line),
+            None => &text,
+        };
         self.feed(line);
     }
 
@@ -2850,9 +2901,9 @@ pub fn audit_all(
 #[cfg(test)]
 mod tests {
     use super::{
-        Hit, checklist_audit, clean_audit, dep_closure, dep_key, deps_map, hygiene_audit, in_scope,
-        is_instruction_channel, is_interface_surface, marker_lines, name_pattern, outgoing_paths,
-        range_diff, regex_hits,
+        ATTR_SOURCE_FLOOR, Hit, checklist_audit, clean_audit, dep_closure, dep_key, deps_map,
+        hygiene_audit, in_scope, is_instruction_channel, is_interface_surface, marker_lines,
+        name_pattern, outgoing_paths, parse_git_version, range_diff, regex_hits,
     };
     use crate::contract::Rule;
     use base64::Engine as _;
@@ -3837,26 +3888,70 @@ mod tests {
         );
     }
 
+    /// The floor the range gate enforces is a pure function of the
+    /// version line: below 2.42 - or an answer that is not a version at
+    /// all - `attr_source_supported` reports false and the stage
+    /// refuses, so a stale or fake `git` can never reach the audit.
+    #[test]
+    fn the_attribute_source_floor_fails_closed() {
+        for stale in [
+            "git version 2.39.3",
+            "git version 1.9.0",
+            "git version 2.41.9",
+            "git version",
+            "not a version",
+            "git version next",
+        ] {
+            assert!(
+                parse_git_version(stale).is_none_or(|v| v < ATTR_SOURCE_FLOOR),
+                "{stale:?} must not satisfy the floor"
+            );
+        }
+        for ok in [
+            "git version 2.42.0",
+            "git version 2.42.0 (Apple Git-147)",
+            "git version 3.0",
+        ] {
+            assert!(
+                parse_git_version(ok).is_some_and(|v| v >= ATTR_SOURCE_FLOOR),
+                "{ok:?} must satisfy the floor"
+            );
+        }
+    }
+
+    /// A `git` placed first on PATH really is the binary the gate talks
+    /// to - and a stale answer from it fails the floor closed.
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_git_on_path_fails_the_floor() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-fakegit-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        std::fs::create_dir_all(&guard.0).unwrap();
+        let fake = guard.0.join("git");
+        std::fs::write(&fake, "#!/bin/sh\necho 'git version 2.39.3'\n").unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let output = super::git_command(".", &["version"], None)
+            .env("PATH", &guard.0)
+            .output()
+            .unwrap();
+        let answered = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            answered.contains("2.39.3"),
+            "the fake git answered: {answered}"
+        );
+        assert!(parse_git_version(&answered).is_none_or(|v| v < ATTR_SOURCE_FLOOR));
+    }
+
     /// Attribute authority is the audited tree, not the checkout: an
     /// uncommitted `.gitattributes` cannot suppress the audited delta,
     /// and a committed `-diff` deleted only in the worktree still
     /// suppresses - and is still recovered - at head.
     #[test]
     fn attribute_answers_come_from_the_audited_head() {
-        let version = git(std::path::Path::new("."), &["version"]);
-        let mut parts = version
-            .strip_prefix("git version ")
-            .unwrap_or(&version)
-            .split_whitespace()
-            .next()
-            .unwrap_or("0")
-            .split('.')
-            .filter_map(|p| p.parse::<u64>().ok());
-        let supported = (parts.next().unwrap_or(0), parts.next().unwrap_or(0)) >= (2, 42);
-        if !supported {
-            eprintln!("skipping: attribute pinning needs Git 2.42+, found {version}");
-            return;
-        }
         let guard = CaseDir(std::env::temp_dir().join(format!(
             "gv-attrhead-{}-{}",
             std::process::id(),

@@ -67,6 +67,9 @@ profile directory; `probator-agent` resolves it at run start.
 
 ## Build, verify, install
 
+Prerequisite: Git 2.42 or newer — range audits pin attribute resolution
+to the audited tree via `GIT_ATTR_SOURCE`, which older Git ignores.
+
 ```sh
 cargo fmt && cargo clippy --all-targets && cargo test
 cargo install --path . --root ~/.local

@@ -156,17 +156,27 @@ pub(crate) fn fnmatch_regex(pattern: &str) -> Result<regex::Regex, String> {
     translated.push_str(r")\z");
     regex::Regex::new(&translated).map_err(|error| format!("invalid glob pattern: {error}"))
 }
-/// The one `Command::new("git")` in these modules: `attr` pins
-/// `GIT_ATTR_SOURCE` when a pass must answer attributes from the audited
-/// tree rather than the ambient index/worktree. Every git spawn in
-/// stage1 and evidence - buffered output callers, streamed bodies and
-/// streamed diffs alike - starts here, so working directory, env and
-/// attribute authority share a single construction.
+/// The one `Command::new("git")` in these modules' production paths:
+/// `attr` pins `GIT_ATTR_SOURCE` when a pass must answer attributes
+/// from the audited tree rather than the ambient index/worktree, and an
+/// unpinned spawn clears an inherited `GIT_ATTR_SOURCE` so ambient state
+/// cannot redirect its answers. Every production git spawn in stage1
+/// and evidence - buffered output callers, streamed bodies and streamed
+/// diffs alike - starts here, so working directory, env and attribute
+/// authority share a single construction. Test fixtures spawn their own
+/// git for repository setup; they never enter an audited pass.
 pub(crate) fn git_command(repo: &str, args: &[&str], attr: Option<&str>) -> Command {
     let mut command = Command::new("git");
     command.arg("-C").arg(repo).args(args);
-    if let Some(head) = attr {
-        command.env("GIT_ATTR_SOURCE", head);
+    match attr {
+        Some(head) => {
+            command.env("GIT_ATTR_SOURCE", head);
+        }
+        // An ambient GIT_ATTR_SOURCE must not redirect answers for a
+        // spawn that never asked for a pinned tree.
+        None => {
+            command.env_remove("GIT_ATTR_SOURCE");
+        }
     }
     command
 }
@@ -177,11 +187,12 @@ pub(crate) fn git(repo: &str, args: &[&str]) -> Result<std::process::Output, Str
 
 /// `git` with the attribute source pinned to the audited tree: the review
 /// object is the head commit, so attribute answers come from
-/// `GIT_ATTR_SOURCE` (honored by Git 2.42+) rather than whatever the
-/// index and worktree happen to hold. On an older Git the variable is
-/// ignored and the ambient state answers; `check-attr --source` needs
-/// Git 2.40 and fails closed below that floor, so the pair diverges only
-/// on 2.40-2.41 against a worktree whose attributes differ from head's.
+/// `GIT_ATTR_SOURCE` rather than whatever the index and worktree happen
+/// to hold. Caller contract: `GIT_ATTR_SOURCE` is honored only by Git
+/// 2.42+ - gate passes whose verdict depends on the answer must have
+/// passed `stage1::require_attr_source` first, while evidence-serving
+/// callers may pin unconditionally and simply see ambient answers on an
+/// older Git.
 pub(crate) fn git_head_attr(
     repo: &str,
     args: &[&str],
@@ -349,7 +360,10 @@ impl Evidence {
         }
         if !self.diffs.contains_key(path) {
             let base = self.base.as_deref().unwrap_or(EMPTY_TREE);
-            let output = git(
+            // The attribute answers that shape this diff come from the
+            // audited tree, matching the stage1 passes - ambient
+            // `.gitattributes` cannot suppress a hunk the gate recovered.
+            let output = git_head_attr(
                 &self.repo,
                 &[
                     "diff",
@@ -363,6 +377,7 @@ impl Evidence {
                     "--",
                     path,
                 ],
+                &self.tree,
             )?;
             let raw = String::from_utf8_lossy(&output.stdout);
             self.diffs.insert(path.to_string(), sanitize_source(&raw));
@@ -448,12 +463,15 @@ impl Evidence {
         if text.is_empty() {
             return Err("A literal search string is required".to_string());
         }
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(&self.repo)
-            .args(["grep", "-I", "-n", "-F", "-e", text, &self.tree, "--"])
-            .output()
-            .map_err(|error| format!("Source search failed: {error}"))?;
+        // `-I` consults the `diff` attribute to call a file binary, so the
+        // search pins the same audited tree the gate classified against.
+        let output = git_command(
+            &self.repo,
+            &["grep", "-I", "-n", "-F", "-e", text, &self.tree, "--"],
+            Some(&self.tree),
+        )
+        .output()
+        .map_err(|error| format!("Source search failed: {error}"))?;
         match output.status.code() {
             Some(0) | Some(1) => {}
             _ => return Err("Source search failed".to_string()),
