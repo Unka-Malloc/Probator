@@ -927,7 +927,31 @@ mod tests {
                 .unwrap()
                 .contains("coverage incomplete")
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        // Advisory findings do not stand in for the refusal either: a
+        // non-pass verdict with no high still synthesizes one.
+        write_sealed_report(
+            &path,
+            json!({
+                "verdict": "incomplete",
+                "gate_status": "refused",
+                "summary": "coverage incomplete",
+                "findings": [{
+                    "file": "a.txt", "line": 3, "severity": "advisory",
+                    "evidence": "note", "impact": "minor note", "remedy": "none"
+                }]
+            }),
+        );
+        let findings = findings_of_at("x", &path, None, None);
+        assert_eq!(findings.len(), 2, "{findings:?}");
+        assert!(
+            findings.iter().any(|finding| finding["severity"] == "high"
+                && finding["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("coverage incomplete")),
+            "{findings:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

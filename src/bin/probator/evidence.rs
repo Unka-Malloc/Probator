@@ -154,7 +154,7 @@ pub(crate) fn fnmatch_regex(pattern: &str) -> Result<regex::Regex, String> {
         i += 1;
     }
     translated.push_str(r")\z");
-    regex::Regex::new(&translated).map_err(|error| format!("invalid list pattern: {error}"))
+    regex::Regex::new(&translated).map_err(|error| format!("invalid glob pattern: {error}"))
 }
 pub(crate) fn git(repo: &str, args: &[&str]) -> Result<std::process::Output, String> {
     let output = Command::new("git")

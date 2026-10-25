@@ -157,10 +157,10 @@ fn request_from(args: &[String]) -> Result<Request, a4aa::AdapterError> {
 
 /// The audit is read-only: the only calls a permission prompt may approve
 /// are the checker's own `probator-audit` evidence and verdict tools — the
-/// tool surface the role itself declares. Approval reads the tool call's
-/// identity fields, never prose a model can shape: a call that names the
-/// audit namespace may proceed, a call that names anything else refuses,
-/// and a call with no tool identity is cancelled.
+/// tool surface the role itself declares. Approval needs the host-reported
+/// tool name inside the audit namespace; fields the model authors — the
+/// title and the call's raw input — can only veto, never approve: one
+/// spelling another tool's `mcp__` identity cancels the call.
 struct AuditPermissions;
 
 /// A tool identity names the audit surface when it is the canonical MCP
@@ -174,39 +174,35 @@ fn is_audit_name(name: &str) -> bool {
             .is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric() || c == '-'))
 }
 
-/// The identities the call itself claims: the schema's `name` field, the
-/// raw input's function name, and the title only when it is itself a tool
-/// identifier - a prose title is display text, not an identity.
-fn tool_identities(prompt: &PermissionPrompt) -> Vec<String> {
-    let call = &prompt.raw["toolCall"];
-    let mut names: Vec<String> = [
-        call["name"].as_str(),
-        call["rawInput"]["name"].as_str(),
-        call["raw_input"]["name"].as_str(),
-    ]
-    .into_iter()
-    .flatten()
-    .map(str::to_string)
-    .collect();
-    if prompt.title.starts_with("mcp__") || is_audit_name(&prompt.title) {
-        names.push(prompt.title.clone());
-    }
-    names
-}
-
 #[async_trait::async_trait]
 impl PermissionHandler for AuditPermissions {
     async fn decide(&self, prompt: PermissionPrompt) -> PermissionDecision {
-        let mut audit = false;
-        for name in tool_identities(&prompt) {
-            if is_audit_name(&name) {
-                audit = true;
-            } else {
-                // A call that names any non-audit tool refuses outright.
+        // A host-declared mutating or executing kind is never the read-only
+        // audit surface, whatever name the call claims.
+        if matches!(
+            prompt.kind.as_deref(),
+            Some("edit" | "delete" | "move" | "execute" | "fetch" | "switch_mode")
+        ) {
+            return PermissionDecision::Cancelled;
+        }
+        let call = &prompt.raw["toolCall"];
+        // Model-authored fields only veto: a title or raw-input `name`
+        // spelling a non-audit tool identity cancels the prompt.
+        for name in [
+            call["rawInput"]["name"].as_str(),
+            call["raw_input"]["name"].as_str(),
+            Some(prompt.title.as_str()),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if name.starts_with("mcp__") && !is_audit_name(name) {
                 return PermissionDecision::Cancelled;
             }
         }
-        if !audit {
+        // The host's own tool name is the approval identity: absent or
+        // non-audit refuses.
+        if !call["name"].as_str().is_some_and(is_audit_name) {
             return PermissionDecision::Cancelled;
         }
         prompt
@@ -285,24 +281,17 @@ fn user_binding(checker: &str) -> Option<(PathBuf, Value)> {
 
 /// A checker-named binding may choose the harness, model and fallback chain,
 /// but it may not add a capability the gate did not project. A profile is
-/// admissible only when it is read-only and carries no extra environment,
-/// working directory, mechanisms, MCP servers, skills or agent mode. The open
-/// patch below forces the same fields; this check also refuses a fallback
-/// that would violate them before `va` spends a turn on it.
-///
-/// `selector` is whether the open patch can project `permission` onto this
-/// candidate's lane. Where it cannot, the profile must declare `read-only`
-/// itself — a lane with no permission surface is not made read-only by
-/// silence.
-fn restricted_profile(profile: &Value, stamped_mcp: Option<&Value>, selector: bool) -> bool {
+/// admissible only when it declares `read-only` — a lane with no permission
+/// surface is not made read-only by silence — and carries no extra
+/// environment, working directory, mechanisms, MCP servers, skills or agent
+/// mode. The open patch below forces the same fields; this check also
+/// refuses a fallback that would violate them before `va` spends a turn on
+/// it. The returned field names the first violated constraint so the
+/// operator can find the offending declaration.
+fn profile_refusal(profile: &Value, stamped_mcp: Option<&Value>) -> Option<&'static str> {
     if !profile.is_object() {
-        return false;
+        return Some("profile");
     }
-    let read_only = match profile.get("permission") {
-        None | Some(Value::Null) => selector,
-        Some(Value::String(permission)) => permission == "read-only",
-        Some(_) => false,
-    };
     let empty_map = |key: &str| match profile.get(key) {
         None | Some(Value::Null) => true,
         Some(Value::Object(map)) => map.is_empty(),
@@ -314,14 +303,29 @@ fn restricted_profile(profile: &Value, stamped_mcp: Option<&Value>, selector: bo
         Some(Value::Array(list)) => list.is_empty(),
         Some(_) => false,
     };
-    read_only
-        && empty_map("env")
-        && absent("cwd")
-        && absent("mechanisms")
-        && absent("mode")
-        && (empty_list("mcpServers")
-            || stamped_mcp.is_some_and(|stamped| profile.get("mcpServers") == Some(stamped)))
-        && empty_list("skillReferences")
+    [
+        (
+            "permission",
+            profile.get("permission") == Some(&Value::String("read-only".into())),
+        ),
+        ("env", empty_map("env")),
+        ("cwd", absent("cwd")),
+        ("mechanisms", absent("mechanisms")),
+        ("mode", absent("mode")),
+        (
+            "mcpServers",
+            empty_list("mcpServers")
+                || stamped_mcp.is_some_and(|stamped| profile.get("mcpServers") == Some(stamped)),
+        ),
+        ("skillReferences", empty_list("skillReferences")),
+    ]
+    .into_iter()
+    .find(|(_, admitted)| !admitted)
+    .map(|(field, _)| field)
+}
+
+fn restricted_profile(profile: &Value, stamped_mcp: Option<&Value>) -> bool {
+    profile_refusal(profile, stamped_mcp).is_none()
 }
 
 /// The audit server list in the shape ACP and serve lanes accept: the role's
@@ -953,7 +957,6 @@ fn opened_from(
     role: &awp::Profile,
     admitted: &[String],
     primary: &str,
-    binding: &str,
     enforce_provider: bool,
 ) -> Result<Opened, a4aa::AdapterError> {
     let sidecar_id = result["sessionId"].as_str().unwrap_or("").to_string();
@@ -980,11 +983,7 @@ fn opened_from(
     // exact value this run wrote — so identical entries admit.
     let stamped = enforce_provider.then(|| lane_mcp_list(role));
     let agent = profile["agent"].as_str().unwrap_or("");
-    // The open patch reaches only serve-lane candidates; every other lane
-    // must carry its own read-only declaration.
-    let selector = document["agents"][agent]["lane"].as_str() == Some("serve")
-        && permission_selector_supported(document, binding);
-    if !restricted_profile(profile, stamped.as_ref(), selector) {
+    if !restricted_profile(profile, stamped.as_ref()) {
         return Err(failure("audit_served_not_admitted", "audit/open"));
     }
     if !is_label(agent) || !lane_admitted(document, agent) {
@@ -1082,15 +1081,21 @@ async fn run(request: Request) -> a4aa::Result<Value> {
             // read-only, single-tool shape. Refuse the binding before `va`
             // starts if any candidate declares a stronger capability or a
             // command whose native tools are not the audit allowlist.
-            if admitted.iter().any(|id| {
+            for id in &admitted {
                 let profile = &user["profiles"][id];
-                if !profile.is_object() || !restricted_profile(profile, None, false) {
-                    return true;
+                if let Some(field) = profile_refusal(profile, None) {
+                    return Err(failure("audit_candidate_not_admitted", "registry/resolve")
+                        .with_detail(format!(
+                            "profile '{id}' carries an inadmissible {field} declaration"
+                        )));
                 }
                 let agent = profile["agent"].as_str().unwrap_or("");
-                !audit_safe_agent(&user["agents"][agent])
-            }) {
-                return Err(failure("audit_candidate_not_admitted", "registry/resolve"));
+                if !audit_safe_agent(&user["agents"][agent]) {
+                    return Err(failure("audit_candidate_not_admitted", "registry/resolve")
+                        .with_detail(format!(
+                            "profile '{id}' names a harness outside the audit allowlist"
+                        )));
+                }
             }
             // The user's binding owns harness, model and fallback chain; the
             // contract's runtime block only supplied the role text and the
@@ -1302,7 +1307,6 @@ async fn run(request: Request) -> a4aa::Result<Value> {
                     role,
                     &admitted,
                     &primary,
-                    &binding,
                     enforce_provider,
                 ) {
                     Ok(session) => {
@@ -1449,5 +1453,102 @@ async fn main() {
             );
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn prompt(kind: Option<&str>, title: &str, tool_call: Value) -> PermissionPrompt {
+        PermissionPrompt {
+            session_id: "s".into(),
+            tool_call_id: "t".into(),
+            title: title.into(),
+            kind: kind.map(str::to_string),
+            content_texts: Vec::new(),
+            options: vec![("allow-1".into(), "Allow".into(), "allow_once".into())],
+            raw: json!({"toolCall": tool_call}),
+        }
+    }
+
+    fn decide(prompt: PermissionPrompt) -> PermissionDecision {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(AuditPermissions.decide(prompt))
+    }
+
+    #[test]
+    fn an_audit_tool_call_is_the_only_approved_identity() {
+        let approved = decide(prompt(
+            None,
+            "probator-audit: read",
+            json!({"name": "mcp__probator_audit__read"}),
+        ));
+        assert!(matches!(approved, PermissionDecision::Selected(id) if id == "allow-1"));
+        for tool_call in [
+            json!({}),
+            json!({"name": "shell"}),
+            json!({"name": "mcp__other__read"}),
+            // Model-authored fields can spell the audit namespace and still
+            // approve nothing: rawInput is argument data, and the title is
+            // prose - neither is the host's tool identity.
+            json!({"rawInput": {"name": "mcp__probator_audit__read"}}),
+            json!({"raw_input": {"name": "mcp__probator_audit__read"}}),
+        ] {
+            assert!(
+                matches!(
+                    decide(prompt(None, "probator-audit: read", tool_call)),
+                    PermissionDecision::Cancelled
+                ),
+                "non-host identity must not approve"
+            );
+        }
+    }
+
+    #[test]
+    fn a_prose_title_and_veto_identities_never_approve() {
+        // A prose title that merely contains the audit name is not identity.
+        assert!(matches!(
+            decide(prompt(None, "run probator-audit scan now", json!({}))),
+            PermissionDecision::Cancelled
+        ));
+        // An audit host name plus a model field spelling another tool's
+        // mcp__ identity vetoes the call.
+        assert!(matches!(
+            decide(prompt(
+                None,
+                "mcp__evil__write",
+                json!({"name": "mcp__probator_audit__read"})
+            )),
+            PermissionDecision::Cancelled
+        ));
+        assert!(matches!(
+            decide(prompt(
+                None,
+                "read",
+                json!({"name": "mcp__probator_audit__read",
+                       "rawInput": {"name": "mcp__evil__write"}})
+            )),
+            PermissionDecision::Cancelled
+        ));
+    }
+
+    #[test]
+    fn mutating_kinds_and_missing_options_cancel() {
+        for kind in ["edit", "delete", "move", "execute", "fetch", "switch_mode"] {
+            assert!(matches!(
+                decide(prompt(
+                    Some(kind),
+                    "audit",
+                    json!({"name": "mcp__probator_audit__read"})
+                )),
+                PermissionDecision::Cancelled
+            ));
+        }
+        let mut denied = prompt(None, "audit", json!({"name": "mcp__probator_audit__read"}));
+        denied.options = vec![("deny-1".into(), "Deny".into(), "deny_once".into())];
+        assert!(matches!(decide(denied), PermissionDecision::Cancelled));
     }
 }

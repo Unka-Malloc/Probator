@@ -426,48 +426,75 @@ fn clean_audit(repo: &str, target: &Target, opts: &Opts) -> Result<(String, Vec<
     Ok((why, hits))
 }
 
+/// Stage a batch spec file other local users cannot pre-plant: `create_new`
+/// refuses an existing name - symlink, FIFO or regular file alike - the 0600
+/// mode keeps the list private, and the returned handle means the child
+/// reads the file this process created even if the path is later replaced.
+/// Retries cover a random-name collision with a sibling run.
+fn spec_file() -> Result<(std::path::PathBuf, std::fs::File), String> {
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt as _;
+    for _ in 0..8 {
+        let path = std::env::temp_dir().join(format!(
+            "probator-oids-{}-{:08x}",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        match options.open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!("Git could not stage the batch list: {error}"));
+            }
+        }
+    }
+    Err("Git could not stage the batch list: name collision".into())
+}
+
 /// Stream the objects named by `specs` through one `git cat-file --batch`
 /// process, in input order. `f` receives the spec's index and the object's
 /// bytes; returning `false` stops the pass early. Specs go through a file:
 /// piped stdin plus a parent that stalls reading deadlocks once the list
-/// outgrows the pipe buffer.
+/// outgrows the pipe buffer. Specs must be plain object names (OIDs or
+/// revisions) - a path carrying a newline would split one spec into two
+/// input lines and desynchronize the header-to-index pairing.
 fn for_each_blob(
     repo: &str,
     specs: &[String],
     mut f: impl FnMut(usize, &[u8]) -> Result<bool, String>,
 ) -> Result<(), String> {
-    use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+    use std::io::{BufRead as _, BufReader, Read as _, Seek as _, SeekFrom, Write as _};
     if specs.is_empty() {
         return Ok(());
     }
-    let list = std::env::temp_dir().join(format!(
-        "probator-oids-{}-{:04x}",
-        std::process::id(),
-        rand::random::<u16>()
-    ));
-    let spawned = std::fs::File::create(&list)
-        .and_then(|mut file| {
-            for spec in specs {
-                writeln!(file, "{spec}")?;
-            }
-            file.flush()?;
-            std::fs::File::open(&list)
-        })
-        .and_then(|input| {
-            Command::new("git")
-                .arg("-C")
-                .arg(repo)
-                .args(["cat-file", "--batch"])
-                .stdin(std::process::Stdio::from(input))
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-        });
+    let (list, mut file) = spec_file()?;
+    let spawned = (|| {
+        for spec in specs {
+            writeln!(file, "{spec}")
+                .map_err(|e| format!("Git could not stage the batch list: {e}"))?;
+        }
+        file.flush()
+            .and_then(|_| file.seek(SeekFrom::Start(0)))
+            .map_err(|e| format!("Git could not stage the batch list: {e}"))?;
+        Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["cat-file", "--batch"])
+            .stdin(std::process::Stdio::from(file))
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Git could not read the review snapshot: {e}"))
+    })();
     let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
             let _ = std::fs::remove_file(&list);
-            return Err(format!("Git could not read the review snapshot: {error}"));
+            return Err(error);
         }
     };
     let mut out = BufReader::new(child.stdout.take().unwrap());
@@ -610,30 +637,24 @@ fn clean_audit_scan(
         // the pipe buffer - the child stalls writing stdout nobody reads
         // while the parent stalls writing stdin nobody drains.
         if !blobs.is_empty() {
-            let list = std::env::temp_dir().join(format!(
-                "gv-oids-{}-{:04x}",
-                std::process::id(),
-                rand::random::<u16>()
-            ));
-            {
-                use std::io::Write as _;
-                let mut file = std::fs::File::create(&list)
-                    .map_err(|e| format!("Git could not read the review snapshot: {e}"))?;
+            use std::io::{Seek as _, SeekFrom, Write as _};
+            let (list, mut file) = spec_file()?;
+            let checked = (|| {
                 for (oid, _) in &blobs {
-                    let _ = writeln!(file, "{oid}");
+                    writeln!(file, "{oid}")
+                        .map_err(|e| format!("Git could not stage the batch list: {e}"))?;
                 }
-            }
-            let checked = std::fs::File::open(&list)
-                .map_err(|e| format!("Git could not read the review snapshot: {e}"))
-                .and_then(|input| {
-                    Command::new("git")
-                        .arg("-C")
-                        .arg(repo)
-                        .args(["cat-file", "--batch-check=%(objectname) %(objecttype)"])
-                        .stdin(std::process::Stdio::from(input))
-                        .output()
-                        .map_err(|e| format!("Git could not read the review snapshot: {e}"))
-                });
+                file.flush()
+                    .and_then(|_| file.seek(SeekFrom::Start(0)))
+                    .map_err(|e| format!("Git could not stage the batch list: {e}"))?;
+                Command::new("git")
+                    .arg("-C")
+                    .arg(repo)
+                    .args(["cat-file", "--batch-check=%(objectname) %(objecttype)"])
+                    .stdin(std::process::Stdio::from(file))
+                    .output()
+                    .map_err(|e| format!("Git could not read the review snapshot: {e}"))
+            })();
             let _ = std::fs::remove_file(&list);
             let checked = checked?;
             let is_blob: std::collections::HashSet<String> =
@@ -1117,8 +1138,7 @@ fn hygiene_audit(
             remedy: remedy("surface/interface-change"),
         })
         .collect();
-    let mut paths_kept = Vec::new();
-    let mut specs = Vec::new();
+    let mut candidates = Vec::new();
     for path in paths {
         if deleted.contains(&path) {
             continue;
@@ -1136,7 +1156,14 @@ fn hygiene_audit(
         if BINARY_HINT.is_match(&path) {
             continue;
         }
-        specs.push(format!("{}:{path}", target.head));
+        candidates.push(path);
+    }
+    let oids = head_blob_oids(repo, target, &candidates)?;
+    let mut paths_kept = Vec::new();
+    let mut specs = Vec::new();
+    for (path, oid) in candidates.into_iter().zip(oids) {
+        let Some(oid) = oid else { continue };
+        specs.push(oid);
         paths_kept.push(path);
     }
     for_each_blob(repo, &specs, |index, blob| {
@@ -1350,7 +1377,15 @@ fn range_diff(
         if !in_hunk {
             if let Some(rest) = line.strip_prefix("--- ") {
                 if rest != "/dev/null" {
-                    deleted_from = Some(unquote_git_path(rest.strip_prefix("a/").unwrap_or(rest)));
+                    // Unquote before stripping the prefix: git C-quotes the
+                    // whole header path, `a/` included.
+                    let quoted = unquote_git_path(rest);
+                    deleted_from = Some(
+                        quoted
+                            .strip_prefix("a/")
+                            .map(str::to_string)
+                            .unwrap_or(quoted),
+                    );
                 }
                 continue;
             }
@@ -1358,7 +1393,13 @@ fn range_diff(
                 path = if rest == "/dev/null" {
                     deleted_from.take()
                 } else {
-                    Some(unquote_git_path(rest.strip_prefix("b/").unwrap_or(rest)))
+                    let quoted = unquote_git_path(rest);
+                    Some(
+                        quoted
+                            .strip_prefix("b/")
+                            .map(str::to_string)
+                            .unwrap_or(quoted),
+                    )
                 };
                 if let Some(p) = &path {
                     diffs.entry(p.clone()).or_default();
@@ -1394,28 +1435,59 @@ fn range_diff(
     Ok(diffs)
 }
 
-/// Text of every listed path at the outgoing revision - one batch pass.
-/// Binary, oversized and missing blobs are absent from the map.
-fn head_texts(
+/// Resolve each path to its blob OID at the head in one `ls-tree -r -z`
+/// pass. A newline inside a name cannot split a NUL-delimited record, and
+/// the specs this returns are bare OIDs - no path text ever reaches the
+/// line-delimited batch input. A path absent from the head gets no entry.
+fn head_blob_oids(
     repo: &str,
     target: &Target,
     paths: &[String],
-) -> Result<std::collections::HashMap<String, String>, String> {
-    let specs: Vec<String> = paths
+) -> Result<Vec<Option<String>>, String> {
+    let mut map: std::collections::HashMap<Vec<u8>, String> = Default::default();
+    for record in git(repo, &["ls-tree", "-r", "-z", &target.head])?
+        .stdout
+        .split(|byte| *byte == 0)
+    {
+        let Some(tab) = record.iter().position(|byte| *byte == b'\t') else {
+            continue;
+        };
+        let metadata = String::from_utf8_lossy(&record[..tab]);
+        if let Some(oid) = metadata.split_whitespace().nth(2) {
+            map.insert(record[tab + 1..].to_vec(), oid.to_string());
+        }
+    }
+    Ok(paths
         .iter()
-        .map(|path| format!("{}:{path}", target.head))
-        .collect();
-    let mut texts: std::collections::HashMap<String, String> = Default::default();
+        .map(|path| map.get(path.as_bytes()).cloned())
+        .collect())
+}
+
+/// Invoke `f` with each path's text at the outgoing revision - missing,
+/// binary and oversized blobs are skipped. Texts stream through one batch
+/// pass and drop at the callback's end, so nothing ever holds the whole
+/// tree: peak memory stays O(largest scanned blob).
+fn for_each_head_text(
+    repo: &str,
+    target: &Target,
+    paths: &[String],
+    mut f: impl FnMut(&str, &str),
+) -> Result<(), String> {
+    let oids = head_blob_oids(repo, target, paths)?;
+    let mut kept: Vec<&str> = Vec::new();
+    let mut specs: Vec<String> = Vec::new();
+    for (path, oid) in paths.iter().zip(&oids) {
+        if let Some(oid) = oid {
+            kept.push(path);
+            specs.push(oid.clone());
+        }
+    }
     for_each_blob(repo, &specs, |index, blob| {
         if !blob.is_empty() && !is_binary(blob, 8000) && blob.len() <= MAX_SCAN_BYTES {
-            texts.insert(
-                paths[index].clone(),
-                String::from_utf8_lossy(blob).into_owned(),
-            );
+            f(kept[index], &String::from_utf8_lossy(blob));
         }
         Ok(true)
-    })?;
-    Ok(texts)
+    })
 }
 
 fn is_new_file(repo: &str, target: &Target, path: &str) -> bool {
@@ -1795,27 +1867,33 @@ fn checklist_audit(
         }
     }
 
-    // One batch read for every changed blob and one diff for the whole
-    // range replace the per-path subprocess pair this loop used to run.
-    let texts = head_texts(repo, target, &paths)?;
+    // One batch read streams every changed blob through the callback and
+    // one diff covers the whole range: no whole-tree text map.
     let diffs = if target.scope == "range" {
         range_diff(repo, target)?
     } else {
         Default::default()
     };
-    for path in &paths {
-        let Some(text) = texts.get(path) else {
-            continue;
-        };
+    for_each_head_text(repo, target, &paths, |path, text| {
+        // A range diff that names no hunk for the path - a mode-only change,
+        // a binary-attributed text file, a name the parser could not key -
+        // means no added or removed lines. Only a snapshot treats every line
+        // of the head text as added.
+        let none: DiffLines = Default::default();
+        let whole: DiffLines;
         let (added, removed) = match diffs.get(path) {
-            Some(pair) => pair.clone(),
-            None => (
-                text.lines()
-                    .enumerate()
-                    .map(|(i, l)| (i as u64 + 1, l.to_string()))
-                    .collect(),
-                Vec::new(),
-            ),
+            Some(pair) => pair,
+            None if target.scope == "range" => &none,
+            None => {
+                whole = (
+                    text.lines()
+                        .enumerate()
+                        .map(|(i, l)| (i as u64 + 1, l.to_string()))
+                        .collect(),
+                    Vec::new(),
+                );
+                &whole
+            }
         };
         let prose = is_prose(path);
         let dockerfile = is_dockerfile(path);
@@ -1826,7 +1904,7 @@ fn checklist_audit(
             if prose && group != Group::Path {
                 continue;
             }
-            for (number, line) in &added {
+            for (number, line) in added {
                 for rule in rules.iter().filter(|rule| rule.group == group) {
                     if !rule.location.matches(path) {
                         continue;
@@ -1841,7 +1919,7 @@ fn checklist_audit(
                         });
                         if hit {
                             surfaces.push(Hit {
-                                path: path.clone(),
+                                path: path.to_string(),
                                 line: *number,
                                 rule: rule.rule.into(),
                                 remedy: remedy(rule.rule),
@@ -1856,7 +1934,7 @@ fn checklist_audit(
                         // blocking rule. Exemptions live only in the signed
                         // rulings ledger, which candidates cannot write.
                         group.sink(&mut regressions, &mut surfaces).push(Hit {
-                            path: path.clone(),
+                            path: path.to_string(),
                             line: *number,
                             rule: rule.rule.into(),
                             remedy: remedy(rule.rule),
@@ -1875,13 +1953,13 @@ fn checklist_audit(
                 .filter_map(|(_, line)| FROM_LINE.captures(line))
                 .filter_map(|capture| capture.get(2).map(|alias| alias.as_str().to_string()))
                 .collect();
-            for (number, line) in &added {
+            for (number, line) in added {
                 if let Some(arg) = SECRET_ARG.captures(line)
                     && SECRET_NAME.is_match(&arg[1])
                     && !PLACEHOLDER.is_match(&arg[2])
                 {
                     regressions.push(Hit {
-                        path: path.clone(),
+                        path: path.to_string(),
                         line: *number,
                         rule: "container/secret-in-image".into(),
                         remedy: remedy("container/secret-in-image"),
@@ -1898,7 +1976,7 @@ fn checklist_audit(
                         && (!tail.contains(':') || reference.ends_with(":latest"))
                     {
                         regressions.push(Hit {
-                            path: path.clone(),
+                            path: path.to_string(),
                             line: *number,
                             rule: "container/unpinned-base-image".into(),
                             remedy: remedy("container/unpinned-base-image"),
@@ -1908,21 +1986,21 @@ fn checklist_audit(
             }
         }
         // Removals that weaken protection.
-        for (number, line) in &removed {
+        for (number, line) in removed {
             if line.trim().is_empty() || line.trim_start().starts_with('#') {
                 continue;
             }
             let name = path.rsplit('/').next().unwrap_or(path);
             if name == ".gitignore" && PROTECTED_IGNORE.is_match(line) {
                 regressions.push(Hit {
-                    path: path.clone(),
+                    path: path.to_string(),
                     line: *number,
                     rule: "hardening/ignore-rule-removed".into(),
                     remedy: remedy("hardening/ignore-rule-removed"),
                 });
             } else if name.to_uppercase().starts_with("CODEOWNERS") {
                 regressions.push(Hit {
-                    path: path.clone(),
+                    path: path.to_string(),
                     line: *number,
                     rule: "hardening/codeowner-removed".into(),
                     remedy: remedy("hardening/codeowner-removed"),
@@ -1943,14 +2021,14 @@ fn checklist_audit(
                 .collect();
             if !wildcard.is_empty() && !credentials.is_empty() {
                 regressions.push(Hit {
-                    path: path.clone(),
+                    path: path.to_string(),
                     line: credentials.iter().max().copied().unwrap_or(1),
                     rule: "runtime/cors-wildcard-credentials".into(),
                     remedy: remedy("runtime/cors-wildcard-credentials"),
                 });
             }
         }
-    }
+    })?;
     Ok((regressions, surfaces))
 }
 
@@ -2025,20 +2103,10 @@ fn regex_hits(repo: &str, target: &Target, rule: &Rule) -> Result<Vec<Hit>, Stri
             // added-lines / removed-lines: the range diff, numbered at the
             // end of the range the line belongs to.
             let paths = outgoing_paths(repo, target)?;
-            let diffs = if target.scope == "range" {
-                range_diff(repo, target)?
-            } else {
-                Default::default()
-            };
-            // A snapshot has no base: every line counts as added.
-            let texts = if diffs.is_empty() && target_name == "added-lines" {
-                head_texts(repo, target, &paths)?
-            } else {
-                Default::default()
-            };
-            for path in &paths {
-                match diffs.get(path) {
-                    Some((added, removed)) => {
+            if target.scope == "range" {
+                let diffs = range_diff(repo, target)?;
+                for path in &paths {
+                    if let Some((added, removed)) = diffs.get(path) {
                         let lines = if target_name == "added-lines" {
                             added
                         } else {
@@ -2055,21 +2123,24 @@ fn regex_hits(repo: &str, target: &Target, rule: &Rule) -> Result<Vec<Hit>, Stri
                             }
                         }
                     }
-                    None => {
-                        if let Some(text) = texts.get(path) {
-                            for (index, line) in text.lines().enumerate() {
-                                if pattern.is_match(line) {
-                                    hits.push(Hit {
-                                        path: path.clone(),
-                                        line: index as u64 + 1,
-                                        rule: rule.id.clone(),
-                                        remedy: None,
-                                    });
-                                }
-                            }
+                }
+            } else if target_name == "added-lines" {
+                // A snapshot has no base: every line counts as added. In a
+                // range a missing diff entry means no lines - never a
+                // whole-file fallback (checklist_audit applies the same
+                // policy). A snapshot targets removed-lines: no lines.
+                for_each_head_text(repo, target, &paths, |path, text| {
+                    for (index, line) in text.lines().enumerate() {
+                        if pattern.is_match(line) {
+                            hits.push(Hit {
+                                path: path.to_string(),
+                                line: index as u64 + 1,
+                                rule: rule.id.clone(),
+                                remedy: None,
+                            });
                         }
                     }
-                }
+                })?;
             }
         }
     }
@@ -2195,8 +2266,8 @@ pub fn audit_all(
 #[cfg(test)]
 mod tests {
     use super::{
-        Hit, checklist_audit, clean_audit, dep_closure, dep_key, deps_map, in_scope,
-        is_instruction_channel, is_interface_surface, marker_lines, name_pattern,
+        Hit, checklist_audit, clean_audit, dep_closure, dep_key, deps_map, hygiene_audit, in_scope,
+        is_instruction_channel, is_interface_surface, marker_lines, name_pattern, range_diff,
     };
     use base64::Engine as _;
 
@@ -2606,6 +2677,221 @@ mod tests {
             !surfaces.iter().any(|h| h.rule.starts_with("suppressed/")),
             "no suppressed surface may exist: {}",
             seen(&surfaces)
+        );
+    }
+
+    /// A newline inside a path must never split the batched reads the
+    /// checklist and hygiene passes build: `head:path` used to ride a
+    /// line-delimited spec file, so a first-sorting name like `!x\n<oid>`
+    /// desynchronized the header-to-path pairing and shifted every later
+    /// blob onto the wrong path — silently skipping the path-scoped rules.
+    /// The specs now carry bare OIDs resolved through `ls-tree -r -z`.
+    #[test]
+    fn a_newline_in_a_path_cannot_desynchronize_the_blob_map() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-newline-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let b64 = |s: &str| {
+            String::from_utf8(base64::engine::general_purpose::STANDARD.decode(s).unwrap()).unwrap()
+        };
+        // The trigger contents ride base64 so this tree never stores the
+        // shapes its own gate scans for.
+        let workflow = root.join(".github/workflows/ci.yml");
+        std::fs::create_dir_all(workflow.parent().unwrap()).unwrap();
+        std::fs::write(
+            &workflow,
+            b64("b246IHB1c2gKcGVybWlzc2lvbnM6IHdyaXRlLWFsbApqb2JzOgogIHQ6CiAgICBydW5zLW9uOiB1YnVudHUtbGF0ZXN0Cg=="),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Dockerfile"),
+            b64("RlJPTSBzY3JhdGNoClVTRVIgcm9vdAo="),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("conflicted.txt"),
+            "a\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n",
+        )
+        .unwrap();
+        // A first-sorting name carrying a newline: under the line-delimited
+        // spec format this split into `head:!x` plus a bare OID spec.
+        let planted = format!("!x\n{}", "0".repeat(40));
+        std::fs::write(root.join(&planted), "decoy\n").unwrap();
+        git(root, &["add", "-A"]);
+        git(root, &["commit", "-qm", "head"]);
+        let head = git(root, &["rev-parse", "HEAD"]);
+        let target = Target {
+            kind: "push".to_string(),
+            label: "newline".to_string(),
+            scope: "snapshot".to_string(),
+            base: None,
+            head,
+            ref_: None,
+        };
+        let repo = root.to_str().unwrap();
+        let (regressions, _) = checklist_audit(repo, &target, true).unwrap();
+        for (path, rule) in [
+            (".github/workflows/ci.yml", "ci/write-all-permissions"),
+            ("Dockerfile", "container/root-user"),
+        ] {
+            assert!(
+                regressions.iter().any(|h| h.rule == rule && h.path == path),
+                "{rule} must still name {path}: {}",
+                regressions
+                    .iter()
+                    .map(|h| format!("{}:{}", h.path, h.rule))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        let (hits, _) = hygiene_audit(repo, &target, true).unwrap();
+        assert!(
+            hits.iter()
+                .any(|h| h.rule == "conflict-marker" && h.path == "conflicted.txt"),
+            "the marker hit must keep its own path: {}",
+            hits.iter()
+                .map(|h| format!("{}:{}", h.path, h.rule))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    /// Git C-quotes a diff header path that needs it — `a/` prefix included —
+    /// so the prefix must come off after unquoting, never before. A
+    /// `café.py` key must stay `café.py`, not `a/café.py`.
+    #[test]
+    fn a_quoted_path_keeps_its_key_in_the_range_diff() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-quoted-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join("café.py"), "x = 1\n").unwrap();
+        std::fs::write(root.join("gone.py"), "x = 1\n").unwrap();
+        let base = commit_all(root, "base");
+        std::fs::write(root.join("café.py"), "x = 1\ny = 2\n").unwrap();
+        std::fs::remove_file(root.join("gone.py")).unwrap();
+        let head = commit_all(root, "head");
+        let target = range_target(base, head);
+        let diffs = range_diff(root.to_str().unwrap(), &target).unwrap();
+        for (path, added) in [("café.py", 1usize), ("gone.py", 0)] {
+            let Some((a, _)) = diffs.get(path) else {
+                panic!("{path} must key the diff map: {diffs:?}");
+            };
+            assert_eq!(a.len(), added, "{path} added lines: {diffs:?}");
+        }
+        assert!(
+            diffs.keys().all(|path| !path.starts_with("a/")),
+            "no header prefix may survive unquoting: {:?}",
+            diffs.keys().collect::<Vec<_>>()
+        );
+    }
+
+    /// A range path with no hunk — a mode-only chmod — is not "the whole
+    /// file added": the checklist must not rescan pre-existing content as
+    /// new, while a sibling's real diff still reports its added lines.
+    #[test]
+    fn a_mode_only_change_is_not_a_whole_file_add() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-chmod-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let b64 = |s: &str| {
+            String::from_utf8(base64::engine::general_purpose::STANDARD.decode(s).unwrap()).unwrap()
+        };
+        // A trigger line committed at base: rescanning it as "added" would
+        // be a false blocking finding.
+        std::fs::write(
+            root.join("mode.py"),
+            b64("ciA9IGdldCh1cmwsIHZlcmlmeSA9IEZhbHNlKQo="),
+        )
+        .unwrap();
+        std::fs::write(root.join("normal.py"), "x = 1\n").unwrap();
+        let base = commit_all(root, "base");
+        let metadata = std::fs::metadata(root.join("mode.py")).unwrap();
+        let mut permissions = metadata.permissions();
+        use std::os::unix::fs::PermissionsExt as _;
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(root.join("mode.py"), permissions).unwrap();
+        std::fs::write(root.join("normal.py"), "x = 1\ny = 2\n").unwrap();
+        let head = commit_all(root, "head");
+        let target = range_target(base, head);
+        let (regressions, _) = checklist_audit(root.to_str().unwrap(), &target, true).unwrap();
+        let tls = |path: &str| {
+            regressions
+                .iter()
+                .filter(|h| h.rule == "runtime/tls-verification-disabled" && h.path == path)
+                .count()
+        };
+        assert_eq!(
+            tls("mode.py"),
+            0,
+            "the pre-existing line was never added in this range"
+        );
+        assert!(
+            regressions.is_empty() || tls("normal.py") == 0,
+            "only the chmod touched mode.py"
+        );
+    }
+
+    /// A deleted file has no head blob — a spec like `head:Release Notes.md`
+    /// used to echo `<spec> missing`, which the whitespace header parser
+    /// misread as a size and failed the whole pass. The OID-resolved batch
+    /// simply carries no entry for it.
+    #[test]
+    fn a_deleted_path_with_a_space_or_newline_name_is_clean() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-deleted-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join("Release Notes.md"), "notes\n").unwrap();
+        let planted = format!("!x\n{}", "0".repeat(40));
+        std::fs::write(root.join(&planted), "decoy\n").unwrap();
+        std::fs::write(root.join("kept.py"), "x = 1\n").unwrap();
+        let base = commit_all(root, "base");
+        std::fs::remove_file(root.join("Release Notes.md")).unwrap();
+        std::fs::remove_file(root.join(&planted)).unwrap();
+        let head = commit_all(root, "head");
+        let target = range_target(base, head);
+        let (regressions, _) = checklist_audit(root.to_str().unwrap(), &target, true).unwrap();
+        assert!(
+            regressions.is_empty(),
+            "deletions carry no lines to scan: {}",
+            regressions
+                .iter()
+                .map(|h| format!("{}:{}", h.path, h.rule))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let (hygiene, _) = hygiene_audit(root.to_str().unwrap(), &target, true).unwrap();
+        assert!(
+            hygiene.is_empty(),
+            "a deletion is never a finding: {}",
+            hygiene
+                .iter()
+                .map(|h| format!("{}:{}", h.path, h.rule))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
 

@@ -415,8 +415,7 @@ impl FullEvidence {
             }
             "list" => {
                 let pattern = args["pattern"].as_str().unwrap_or("*");
-                let glob = fnmatch_regex(pattern)
-                    .map_err(|error| format!("invalid list pattern: {error}"))?;
+                let glob = fnmatch_regex(pattern)?;
                 let paths: Vec<&String> = self
                     .files
                     .keys()
@@ -483,14 +482,12 @@ impl FullEvidence {
                 {
                     pattern = format!("{}/*", pattern.trim_end_matches('/'));
                 }
-                // Literal alternatives: a cheap batched search without regex
-                // hazards.
-                let needles: Vec<String> = text
-                    .split('|')
-                    .map(|needle| needle.to_lowercase())
-                    .collect();
-                let glob = fnmatch_regex(&pattern)
-                    .unwrap_or_else(|_| fnmatch_regex("*").expect("the catch-all glob compiles"));
+                // Literal alternatives: one case-insensitive regex compiled
+                // per call, so the line scan itself never allocates.
+                let needles: Vec<String> = text.split('|').map(regex::escape).collect();
+                let needle_re = regex::Regex::new(&format!("(?i:{})", needles.join("|")))
+                    .map_err(|error| format!("invalid find text: {error}"))?;
+                let glob = fnmatch_regex(&pattern)?;
                 let mut selected: Vec<(&String, &str)> = Vec::new();
                 for (path, content) in self.files.iter() {
                     if glob.is_match(path) {
@@ -515,8 +512,7 @@ impl FullEvidence {
                 let mut total = 0usize;
                 for (path, content) in selected {
                     for (index, line) in content.lines().enumerate() {
-                        let lowered = line.to_lowercase();
-                        if needles.iter().any(|needle| lowered.contains(needle)) {
+                        if needle_re.is_match(line) {
                             if total >= offset && matches.len() < crate::evidence::FIND_PAGE {
                                 matches.push(format!("{path}:{}: {line}", index + 1));
                             }
