@@ -12,7 +12,9 @@
 //! the verdict that is already known.
 
 use crate::contract::{RULE_TARGETS, Rule};
-use crate::evidence::{EMPTY_TREE, git, git_command, git_head_attr, git_ok, suffix_of};
+use crate::evidence::{
+    EMPTY_TREE, git, git_command, git_head_attr, git_ok, git_status_error, suffix_of,
+};
 use regex::Regex;
 use regex::bytes::Regex as BytesRegex;
 use serde_json::{Value, json};
@@ -272,7 +274,7 @@ fn is_binary(raw: &[u8], window: usize) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// withheld-names-and-credentials (Clean Auditor)
+// withheld-names-and-credentials (Privacy Cleaner)
 // ---------------------------------------------------------------------------
 
 /// Shapes, not keywords, ordered most specific first: a label is the first
@@ -332,7 +334,7 @@ fn withheld_names(path: Option<&PathBuf>, repo_slug: &str) -> Vec<String> {
     let path = match path {
         Some(path) => path.clone(),
         None => {
-            if let Ok(overridden) = std::env::var("CLEAN_AUDITOR_WITHHELD") {
+            if let Ok(overridden) = std::env::var("PRIVACY_CLEANER_WITHHELD") {
                 let overridden = overridden.trim();
                 if !overridden.is_empty() {
                     PathBuf::from(overridden)
@@ -622,8 +624,10 @@ fn for_each_blob_prefix(
         match child.wait() {
             Ok(status) if status.success() => {}
             Ok(status) => {
-                result = Err(format!(
-                    "Git could not read the review snapshot: exit {status}"
+                result = Err(git_status_error(
+                    "Git could not read the review snapshot",
+                    &status,
+                    &[],
                 ));
             }
             Err(e) => {
@@ -774,7 +778,7 @@ fn clean_audit_scan(
 }
 
 // ---------------------------------------------------------------------------
-// dependency-direction (Clean Auditor)
+// dependency-direction (Privacy Cleaner)
 // ---------------------------------------------------------------------------
 
 /// The sibling-repository dependency map, machine-local like the withheld
@@ -1445,12 +1449,19 @@ fn parse_git_version(text: &str) -> Option<(u64, u64)> {
     Some((parts.next()?, parts.next()?))
 }
 
-/// Whether this git honors `GIT_ATTR_SOURCE` - the single capability
-/// question both the production gate and the test guards ask.
+/// Whether one `git version` line clears the attribute floor - the
+/// whole capability decision, so tests exercise the same predicate the
+/// gate consults rather than a reimplemented comparison.
+fn attr_floor_met(version_line: &str) -> bool {
+    parse_git_version(version_line).is_some_and(|version| version >= ATTR_SOURCE_FLOOR)
+}
+
+/// Whether this git honors `GIT_ATTR_SOURCE`: fetch the version line,
+/// then apply `attr_floor_met` - the only wiring `require_attr_source`
+/// adds is the call and the error.
 fn attr_source_supported(repo: &str) -> Result<bool, String> {
     let output = git(repo, &["version"])?;
-    Ok(parse_git_version(&String::from_utf8_lossy(&output.stdout))
-        .is_some_and(|version| version >= ATTR_SOURCE_FLOOR))
+    Ok(attr_floor_met(&String::from_utf8_lossy(&output.stdout)))
 }
 
 /// Fail the range audit closed rather than audit on a divergent
@@ -1651,7 +1662,11 @@ fn range_diff(
     match child.wait() {
         Ok(status) if status.success() => {}
         Ok(status) => {
-            return Err(format!("Git could not read the review diff: exit {status}"));
+            return Err(git_status_error(
+                "Git could not read the review diff",
+                &status,
+                &[],
+            ));
         }
         Err(e) => return Err(format!("Git could not read the review diff: {e}")),
     }
@@ -1695,15 +1710,10 @@ fn batch_check(repo: &str, specs: &[&str], format: &str) -> Result<String, Strin
     let _ = std::fs::remove_file(&list);
     let output = output?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "Git could not read the review snapshot: exit {}{}",
-            output.status,
-            if stderr.trim().is_empty() {
-                String::new()
-            } else {
-                format!(" - {}", stderr.trim())
-            }
+        return Err(git_status_error(
+            "Git could not read the review snapshot",
+            &output.status,
+            &output.stderr,
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
@@ -1810,13 +1820,10 @@ fn diff_attrs(
     match status {
         Ok(status) if status.success() => {}
         Ok(status) => {
-            return Err(format!(
-                "Git could not read the review diff attributes: exit {status}{}",
-                if stderr.trim().is_empty() {
-                    String::new()
-                } else {
-                    format!(" - {}", stderr.trim())
-                }
+            return Err(git_status_error(
+                "Git could not read the review diff attributes",
+                &status,
+                stderr.as_bytes(),
             ));
         }
         Err(e) => {
@@ -2901,9 +2908,9 @@ pub fn audit_all(
 #[cfg(test)]
 mod tests {
     use super::{
-        ATTR_SOURCE_FLOOR, Hit, checklist_audit, clean_audit, dep_closure, dep_key, deps_map,
+        Hit, attr_floor_met, checklist_audit, clean_audit, dep_closure, dep_key, deps_map,
         hygiene_audit, in_scope, is_instruction_channel, is_interface_surface, marker_lines,
-        name_pattern, outgoing_paths, parse_git_version, range_diff, regex_hits,
+        name_pattern, outgoing_paths, range_diff, regex_hits,
     };
     use crate::contract::Rule;
     use base64::Engine as _;
@@ -3888,10 +3895,10 @@ mod tests {
         );
     }
 
-    /// The floor the range gate enforces is a pure function of the
-    /// version line: below 2.42 - or an answer that is not a version at
-    /// all - `attr_source_supported` reports false and the stage
-    /// refuses, so a stale or fake `git` can never reach the audit.
+    /// The floor the range gate enforces is the same predicate
+    /// `require_attr_source` consults: below 2.42 - or an answer that is
+    /// not a version at all - the stage refuses, so a stale or fake
+    /// `git` can never reach the audit.
     #[test]
     fn the_attribute_source_floor_fails_closed() {
         for stale in [
@@ -3903,7 +3910,7 @@ mod tests {
             "git version next",
         ] {
             assert!(
-                parse_git_version(stale).is_none_or(|v| v < ATTR_SOURCE_FLOOR),
+                !attr_floor_met(stale),
                 "{stale:?} must not satisfy the floor"
             );
         }
@@ -3912,10 +3919,7 @@ mod tests {
             "git version 2.42.0 (Apple Git-147)",
             "git version 3.0",
         ] {
-            assert!(
-                parse_git_version(ok).is_some_and(|v| v >= ATTR_SOURCE_FLOOR),
-                "{ok:?} must satisfy the floor"
-            );
+            assert!(attr_floor_met(ok), "{ok:?} must satisfy the floor");
         }
     }
 
@@ -3943,7 +3947,7 @@ mod tests {
             answered.contains("2.39.3"),
             "the fake git answered: {answered}"
         );
-        assert!(parse_git_version(&answered).is_none_or(|v| v < ATTR_SOURCE_FLOOR));
+        assert!(!attr_floor_met(&answered));
     }
 
     /// Attribute authority is the audited tree, not the checkout: an

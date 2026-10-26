@@ -185,6 +185,23 @@ pub(crate) fn git(repo: &str, args: &[&str]) -> Result<std::process::Output, Str
     git_output(repo, args, None)
 }
 
+/// One failure shape for a git child that exited non-zero: the context,
+/// the status, and whatever stderr it left - a refusal never reads as a
+/// bare code, whichever spawn produced it.
+pub(crate) fn git_status_error(
+    context: &str,
+    status: &std::process::ExitStatus,
+    stderr: &[u8],
+) -> String {
+    let detail = String::from_utf8_lossy(stderr);
+    let detail = detail.trim();
+    if detail.is_empty() {
+        format!("{context}: exit {status}")
+    } else {
+        format!("{context}: exit {status} - {detail}")
+    }
+}
+
 /// `git` with the attribute source pinned to the audited tree: the review
 /// object is the head commit, so attribute answers come from
 /// `GIT_ATTR_SOURCE` rather than whatever the index and worktree happen
@@ -210,7 +227,11 @@ fn git_output(
         .output()
         .map_err(|error| format!("Git could not read the review snapshot: {error}"))?;
     if !output.status.success() {
-        return Err("Git could not read the review snapshot".to_string());
+        return Err(git_status_error(
+            "Git could not read the review snapshot",
+            &output.status,
+            &output.stderr,
+        ));
     }
     Ok(output)
 }
