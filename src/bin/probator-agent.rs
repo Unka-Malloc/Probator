@@ -502,13 +502,13 @@ fn selector_surface(document: &Value, binding: &str) -> SelectorSurface {
     }
 }
 
-/// The fixed directories a Pi installation may live in. These are the roots
-/// the gate trusts for both the executable and an operator binding's path
-/// candidates; the ambient PATH is never one of them.
+/// The directories any harness may install under without further
+/// declaration: the user's own bin directory and the system package
+/// locations. Harness-specific roots come from the gate template's own
+/// `resolve` paths; the ambient PATH is never one of them.
 fn installation_roots() -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
     if let Some(home) = crate::checker_binding::user_home() {
-        roots.push(home.join(".pi/agent/bin"));
         roots.push(home.join(".local/bin"));
     }
     roots.extend([
@@ -524,39 +524,93 @@ fn under_root(path: &Path, roots: &[PathBuf]) -> bool {
         .is_some_and(|parent| roots.iter().any(|root| root == parent))
 }
 
-/// The gate-owned Pi executable. `PROBATOR_PI_BIN` pins it explicitly; the
-/// default search covers the known Pi installation locations and never the
-/// ambient PATH, so a shadow `pi` cannot become the audit runner. The pinned
-/// file must itself be named `pi`: the child resolves the bare name through
-/// the PATH prefix below, so a differently named pin would leave that
-/// resolution pointing at whatever `pi` happens to share its directory.
-fn trusted_pi() -> Option<PathBuf> {
-    let roots = installation_roots();
-    if let Some(explicit) = std::env::var_os("PROBATOR_PI_BIN") {
+/// The one executable name a gate template's `command.program` resolves
+/// to: every declared candidate must share it — candidates naming
+/// different files give the template no stable identity and admit nothing.
+fn template_binary(template: &Value) -> Option<String> {
+    let name_of = |candidate: &str| {
+        Path::new(candidate)
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    };
+    match &template["command"]["program"] {
+        Value::String(program) => name_of(program),
+        Value::Object(map) if map.len() == 1 => {
+            let resolve = map.get("resolve")?.as_array()?;
+            let mut names = resolve
+                .iter()
+                .filter_map(|candidate| candidate.as_str().and_then(name_of));
+            let first = names.next()?;
+            names.all(|name| name == first).then_some(first)
+        }
+        _ => None,
+    }
+}
+
+/// The install directories a gate template itself declares for its
+/// harness: parents of the absolute entries in `program.resolve`, in
+/// declared order. Bare names and the ambient PATH never contribute.
+fn template_roots(template: &Value, home: Option<&Path>) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let expand = |candidate: &str| {
+        home.map(|home| candidate.replace("{home}", home.to_string_lossy().as_ref()))
+            .unwrap_or_else(|| candidate.to_string())
+    };
+    if let Value::Object(map) = &template["command"]["program"]
+        && let Some(resolve) = map.get("resolve").and_then(Value::as_array)
+    {
+        for candidate in resolve.iter().filter_map(Value::as_str) {
+            let path = PathBuf::from(expand(candidate));
+            if path.is_absolute()
+                && let Some(parent) = path.parent()
+                && !roots.iter().any(|root| root == parent)
+            {
+                roots.push(parent.to_path_buf());
+            }
+        }
+    }
+    roots
+}
+
+/// The gate-owned executable for one audit harness, discovered on this
+/// machine: `PROBATOR_<NAME>_BIN` pins it explicitly (the pi spelling is
+/// `PROBATOR_PI_BIN`); otherwise the first executable named after the
+/// harness under the template's declared roots, then the standard
+/// installation roots. The ambient PATH is never searched, so a shadow
+/// binary cannot become the audit runner. A pin must be absolute and its
+/// canonical file must stay in the pinned directory — and still carry the
+/// harness name, since the child resolves the bare name through the PATH
+/// prefix built below.
+fn trusted_binary(binary: &str, roots: &[PathBuf]) -> Option<PathBuf> {
+    let pin = format!(
+        "PROBATOR_{}_BIN",
+        binary.to_ascii_uppercase().replace('-', "_")
+    );
+    if let Some(explicit) = std::env::var_os(&pin) {
         let path = Path::new(&explicit);
         // A relative pin would resolve against the run directory, which is
         // repository-controlled; the pin must be an absolute installation.
-        if !path.is_absolute() || !is_pi_name(path) {
+        if !path.is_absolute() || !binary_named(path, binary) {
             return None;
         }
         let canonical = executable_file(path)?;
         // The pin may name a custom installation directory, but its symlink
         // target must stay in that same directory rather than escaping to an
-        // arbitrary executable — and it must still be the `pi` the child's
-        // PATH lookup will find.
-        if canonical.parent() != path.parent() || !is_pi_name(&canonical) {
+        // arbitrary executable — and it must still be the harness the
+        // child's PATH lookup will find.
+        if canonical.parent() != path.parent() || !binary_named(&canonical, binary) {
             return None;
         }
         return Some(canonical);
     }
     roots.iter().find_map(|root| {
-        let canonical = executable_file(&root.join("pi"))?;
-        (under_root(&canonical, &roots) && is_pi_name(&canonical)).then_some(canonical)
+        let canonical = executable_file(&root.join(binary))?;
+        (under_root(&canonical, roots) && binary_named(&canonical, binary)).then_some(canonical)
     })
 }
 
-fn is_pi_name(path: &Path) -> bool {
-    path.file_name().and_then(|name| name.to_str()) == Some("pi")
+fn binary_named(path: &Path, binary: &str) -> bool {
+    path.file_name().and_then(|name| name.to_str()) == Some(binary)
 }
 
 /// Canonicalize a regular, executable file. A directory, a broken symlink or
@@ -577,11 +631,11 @@ fn executable_file(path: &Path) -> Option<PathBuf> {
     Some(canonical)
 }
 
-/// The directories an operator binding may name as a Pi installation. The
-/// pinned executable's own directory is included so a deployment that pins a
-/// custom install root still works; `/tmp` and other arbitrary paths are not.
-fn trusted_roots(trusted: &Path) -> Vec<PathBuf> {
-    let mut roots = installation_roots();
+/// The directories an operator binding may name as a harness installation.
+/// The pinned executable's own directory is included so a deployment that
+/// pins a custom install root still works; `/tmp` and other arbitrary paths
+/// are not.
+fn trusted_roots(trusted: &Path, mut roots: Vec<PathBuf>) -> Vec<PathBuf> {
     if let Some(parent) = trusted.parent()
         && !roots.iter().any(|root| root == parent)
     {
@@ -590,19 +644,20 @@ fn trusted_roots(trusted: &Path) -> Vec<PathBuf> {
     roots
 }
 
-/// One declared program candidate. The bare `pi` name is resolved by the
+/// One declared program candidate. The bare harness name is resolved by the
 /// gate-owned PATH prefix below. A path form must either canonicalize to the
 /// trusted executable or be absent inside one of its installation roots; an
-/// arbitrary existing path such as `/tmp/pi` is refused even when its basename
-/// is right.
+/// arbitrary existing path such as `/tmp/pi` is refused even when its
+/// basename is right.
 fn trusted_program_string(
     candidate: &str,
+    binary: &str,
     trusted: &Path,
     home: Option<&Path>,
     roots: &[PathBuf],
 ) -> bool {
-    if candidate == "pi" {
-        return is_pi_name(trusted);
+    if candidate == binary {
+        return binary_named(trusted, binary);
     }
     let expanded = home
         .map(|home| candidate.replace("{home}", home.to_string_lossy().as_ref()))
@@ -611,7 +666,7 @@ fn trusted_program_string(
     if !path.is_absolute() {
         return false;
     }
-    if !is_pi_name(path) {
+    if !binary_named(path, binary) {
         return false;
     }
     if std::fs::symlink_metadata(path).is_ok() {
@@ -620,25 +675,26 @@ fn trusted_program_string(
             .as_deref()
             .is_some_and(|path| path == trusted);
     }
-    // An absent candidate cannot execute. It is harmless only in a known Pi
-    // installation directory; a later substitution there stays bounded by
-    // the same trusted root.
+    // An absent candidate cannot execute. It is harmless only in a known
+    // installation directory for this harness; a later substitution there
+    // stays bounded by the same trusted root.
     roots
         .iter()
         .any(|root| path.parent() == Some(root.as_path()))
 }
 
-/// A checker-named agent's `command.program` may be the short `"pi"` name or
-/// an AwP `{ "resolve": [...] }` object. Every candidate must be trusted; a
-/// basename that merely looks like Pi is not enough.
+/// A checker-named agent's `command.program` may be the harness's bare name
+/// or an AwP `{ "resolve": [...] }` object. Every candidate must be trusted;
+/// a basename that merely looks like the harness is not enough.
 fn trusted_program(
     program: &Value,
+    binary: &str,
     trusted: &Path,
     home: Option<&Path>,
     roots: &[PathBuf],
 ) -> bool {
     match program {
-        Value::String(candidate) => trusted_program_string(candidate, trusted, home, roots),
+        Value::String(candidate) => trusted_program_string(candidate, binary, trusted, home, roots),
         Value::Object(map) => {
             if map.len() != 1 {
                 return false;
@@ -649,7 +705,7 @@ fn trusted_program(
             !resolve.is_empty()
                 && resolve.iter().all(|candidate| {
                     candidate.as_str().is_some_and(|candidate| {
-                        trusted_program_string(candidate, trusted, home, roots)
+                        trusted_program_string(candidate, binary, trusted, home, roots)
                     })
                 })
         }
@@ -657,65 +713,73 @@ fn trusted_program(
     }
 }
 
-/// The only harness shape a checker-named operator binding may run: the
-/// packaged `pi` RPC command with the audit tool surface and no extension,
-/// skill, prompt-template or context-file loading. Profile fields alone cannot
-/// prove the agent's native tools are read-only; a custom command could expose
-/// shell or extra tools, so it is refused before `va` starts.
-fn audit_safe_agent(spec: &Value) -> bool {
-    const SAFE_ARGS: [&str; 15] = [
-        "--mode",
-        "rpc",
-        "--approve",
-        "--tools",
-        "codemode,mcp__probator_audit__*",
-        "--no-extensions",
-        "-e",
-        "builtin:mcp",
-        "-e",
-        "builtin:codemode",
-        "-e",
-        "builtin:tool-search",
-        "--no-skills",
-        "--no-prompt-templates",
-        "--no-context-files",
-    ];
+/// A spec compared against a gate template with everything machine- or
+/// deployment-specific normalized out: `id` and `clientName` are the
+/// operator's own labels, `alternates` is judged separately, and
+/// `command.program` is validated against the trusted installation rather
+/// than text. Lane, argv, environment and the whole protocol surface must
+/// equal the template — the audit-safe shapes are gate-owned data, not
+/// operator vocabulary.
+fn normalized_agent(spec: &Value) -> Value {
+    let mut spec = spec.clone();
+    if let Some(map) = spec.as_object_mut() {
+        map.remove("id");
+        map.remove("clientName");
+        map.remove("alternates");
+        if let Some(command) = map.get_mut("command").and_then(Value::as_object_mut) {
+            command.remove("program");
+        }
+    }
+    spec
+}
+
+/// The gate-validated installation `(binary, path)` of the harness a
+/// checker-named candidate names, when the candidate matches an audit
+/// template. `None` means the candidate is not a gate-defined harness — or
+/// the harness is not installed on this machine; which templates exist is
+/// discovered per candidate, never presupposed.
+fn audit_template(spec: &Value, template: &Value) -> Option<(String, PathBuf)> {
+    // An audit session pins each agent to its declared primary lane: a
+    // silent transport failover would change which permission projection
+    // applies, so an operator candidate never carries alternates.
     let alternates_clear = spec["alternates"].is_null()
         || spec["alternates"]
             .as_array()
             .is_some_and(|alternates| alternates.is_empty());
-    let env_clear = spec["command"]["env"].is_null()
-        || spec["command"]["env"]
-            .as_object()
-            .is_some_and(|env| env.is_empty());
-    if spec["lane"].as_str() != Some("rpc")
-        || !alternates_clear
-        || !env_clear
-        || !spec["command"]["cwd"].is_null()
-    {
-        return false;
+    if !alternates_clear || normalized_agent(spec) != normalized_agent(template) {
+        return None;
     }
-    let Some(trusted) = trusted_pi() else {
-        return false;
-    };
+    let binary = template_binary(template)?;
     let home = crate::checker_binding::user_home();
-    let roots = trusted_roots(&trusted);
-    if !trusted_program(
+    let mut roots = template_roots(template, home.as_deref());
+    for root in installation_roots() {
+        if !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
+    let trusted = trusted_binary(&binary, &roots)?;
+    let roots = trusted_roots(&trusted, roots);
+    trusted_program(
         &spec["command"]["program"],
+        &binary,
         &trusted,
         home.as_deref(),
         &roots,
-    ) {
-        return false;
-    }
-    let Some(args) = spec["command"]["args"].as_array() else {
-        return false;
-    };
-    args.len() == SAFE_ARGS.len()
-        && args
-            .iter()
-            .zip(SAFE_ARGS)
-            .all(|(arg, expected)| arg.as_str() == Some(expected))
+    )
+    .then_some((binary, trusted))
+}
+
+/// The only harness shapes a checker-named operator binding may run: the
+/// audit-safe agent templates the packaged registry ships. A candidate that
+/// matches none — a custom command could expose shell or extra tools whose
+/// surfaces profile fields alone cannot prove — is refused before `va`
+/// starts.
+fn audit_safe_agent(spec: &Value, templates: &Value) -> bool {
+    templates.as_object().is_some_and(|templates| {
+        templates
+            .values()
+            .any(|template| audit_template(spec, template).is_some())
+    })
 }
 
 fn serving_model(session_state: &Value, declared: &str) -> String {
@@ -960,6 +1024,7 @@ async fn open_once(peer: &JsonRpcPeer, params: Value) -> Result<Value, a4aa::Ada
 fn opened_from(
     result: &Value,
     document: &Value,
+    templates: &Value,
     role: &awp::Profile,
     admitted: &[String],
     primary: &str,
@@ -995,9 +1060,9 @@ fn opened_from(
     if !is_label(agent) || !lane_admitted(document, agent) {
         return Err(failure("audit_served_not_admitted", "audit/open"));
     }
-    // A checker-named binding may only serve the audit-safe harness command;
+    // A checker-named binding may only serve a gate-defined audit harness;
     // the packaged installation document keeps its own fallback chain.
-    if !enforce_provider && !audit_safe_agent(&document["agents"][agent]) {
+    if !enforce_provider && !audit_safe_agent(&document["agents"][agent], templates) {
         return Err(failure("audit_served_not_admitted", "audit/open"));
     }
     let declared_model = profile["model"].as_str().unwrap_or("");
@@ -1070,6 +1135,15 @@ async fn run(request: Request) -> a4aa::Result<Value> {
     } else {
         None
     };
+    // The packaged installation document doubles as the audit-safe harness
+    // catalog: which agent shapes a checker-named binding may serve is
+    // gate-owned data. Which of them exist on this machine is discovered
+    // per candidate, never presupposed — no particular agent is required.
+    let raw = std::fs::read_to_string(&request.document)
+        .map_err(|_| failure("audit_document_unreadable", "registry/load"))?;
+    let packaged: Value = serde_json::from_str(&raw)
+        .map_err(|_| failure("audit_document_invalid", "registry/load"))?;
+    let audit_templates = packaged["agents"].clone();
     let (document, binding, admitted, primary, va_home, enforce_provider) = match configured {
         Some((home, user)) => {
             let (primary, fallbacks) =
@@ -1096,7 +1170,7 @@ async fn run(request: Request) -> a4aa::Result<Value> {
                         )));
                 }
                 let agent = profile["agent"].as_str().unwrap_or("");
-                if !audit_safe_agent(&user["agents"][agent]) {
+                if !audit_safe_agent(&user["agents"][agent], &audit_templates) {
                     return Err(failure("audit_candidate_not_admitted", "registry/resolve")
                         .with_detail(format!(
                             "profile '{id}' names a harness outside the audit allowlist"
@@ -1137,10 +1211,7 @@ async fn run(request: Request) -> a4aa::Result<Value> {
             {
                 return Err(failure("audit_role_model_mismatch", "profile/resolve"));
             }
-            let raw = std::fs::read_to_string(&request.document)
-                .map_err(|_| failure("audit_document_unreadable", "registry/load"))?;
-            let mut document: Value = serde_json::from_str(&raw)
-                .map_err(|_| failure("audit_document_invalid", "registry/load"))?;
+            let mut document = packaged.clone();
             let (primary, fallbacks) =
                 crate::checker_binding::binding_profiles(&document["bindings"]["audit"]);
             let Some(primary) = primary else {
@@ -1246,10 +1317,36 @@ async fn run(request: Request) -> a4aa::Result<Value> {
     let delegate = Arc::new(HostDelegate {
         usage: captured_usage.clone(),
     });
-    // A checker-named binding may declare the bare `pi` name. `va` resolves
-    // that name through PATH, so put the gate-validated installation first:
-    // a shadow `pi` earlier in the operator's PATH must not run the audit.
-    let pinned_pi = (!enforce_provider).then(trusted_pi).flatten();
+    // Checker-named candidates may declare a harness by its bare name.
+    // `va` resolves that name through PATH, so every admitted candidate's
+    // gate-validated installation directory comes first: a shadow binary
+    // earlier in the operator's PATH must not run the audit.
+    let mut pinned_dirs: Vec<PathBuf> = Vec::new();
+    if !enforce_provider {
+        for id in &admitted {
+            let agent = document["profiles"][id]["agent"].as_str().unwrap_or("");
+            let Some((binary, trusted)) = audit_templates
+                .as_object()
+                .into_iter()
+                .flatten()
+                .find_map(|(_, template)| audit_template(&document["agents"][agent], template))
+            else {
+                continue;
+            };
+            let dir = trusted
+                .parent()
+                .ok_or_else(|| failure("audit_agent_untrusted", "run/start"))?;
+            // The child resolves the bare name through this prefix. Refuse
+            // unless that lookup lands on the exact canonical file validated
+            // above; a directory-wide prefix alone is not a binding.
+            if executable_file(&dir.join(&binary)).as_deref() != Some(trusted.as_path()) {
+                return Err(failure("audit_agent_untrusted", "run/start"));
+            }
+            if !pinned_dirs.iter().any(|pinned| pinned == dir) {
+                pinned_dirs.push(dir.to_path_buf());
+            }
+        }
+    }
     let mut va = tokio::process::Command::new(va_binary());
     va.arg("serve")
         .stdin(std::process::Stdio::piped())
@@ -1257,19 +1354,13 @@ async fn run(request: Request) -> a4aa::Result<Value> {
         .stderr(std::process::Stdio::inherit())
         .env("VIRTUAL_AGENT_HOME", &va_home)
         .kill_on_drop(true);
-    if let Some(pi) = &pinned_pi {
-        let dir = pi
-            .parent()
-            .ok_or_else(|| failure("audit_agent_untrusted", "run/start"))?;
-        // The child resolves the bare name through this prefix. Refuse unless
-        // that lookup lands on the exact canonical file validated above; a
-        // directory-wide prefix alone is not a binding.
-        if executable_file(&dir.join("pi")).as_deref() != Some(pi.as_path()) {
-            return Err(failure("audit_agent_untrusted", "run/start"));
-        }
+    if !pinned_dirs.is_empty() {
         let path = std::env::var_os("PATH").unwrap_or_default();
         let pinned = std::env::join_paths(
-            std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&path)),
+            pinned_dirs
+                .iter()
+                .cloned()
+                .chain(std::env::split_paths(&path)),
         )
         .map_err(|_| failure("audit_agent_untrusted", "run/start"))?;
         va.env("PATH", pinned);
@@ -1339,6 +1430,7 @@ async fn run(request: Request) -> a4aa::Result<Value> {
                 match opened_from(
                     &result,
                     &document,
+                    &audit_templates,
                     role,
                     &admitted,
                     &primary,

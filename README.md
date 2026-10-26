@@ -22,12 +22,14 @@ release line.
 - `src/bin/probator-agent.rs` — the audit host that speaks a4aa.v1 to the
   serving runtime (Virtual-Agent / AwP), enforcing the contract's tool
   surface fail-closed. When the operator's Virtual-Agent registry carries a
-  binding named after the checker (`clean-auditor`, `money-saver`, …), that
+  binding named after the checker (`privacy-cleaner`, `money-saver`, …), that
   binding owns the harness, model and fallback chain; otherwise the packaged
   `audit` binding built from the contract's runtime is used. A checker-named
-  binding is admitted only when every candidate runs the audit-safe `pi`
-  command (pinned tool surface, no extensions/skills/context files); an
-  arbitrary agent command is refused before `va` starts.
+  binding is admitted only when every candidate matches one of the
+  audit-safe harness templates the packaged registry ships (pinned tool
+  surface, no extensions/skills/context files) and its binary resolves on
+  this machine — no particular agent is presupposed, and an arbitrary
+  agent command is refused before `va` starts.
 - `tools/<checker>/` — audit sources: `contract.json`, `policy.md`,
   `SKILL.md` (plus `documents.json`, Money Saver's official-document
   catalog); `tools/registry.json` declares the agents/bindings/secrets

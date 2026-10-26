@@ -23,6 +23,14 @@ fn pi_stub() -> PathBuf {
     path
 }
 
+/// The same stand-in for a non-Pi harness installation: admission is by
+/// gate template, not by harness name.
+fn devin_stub() -> PathBuf {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/devin");
+    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+    path
+}
+
 struct Fixture {
     contract_dir: PathBuf,
     run_dir: PathBuf,
@@ -35,6 +43,7 @@ struct Fixture {
     session: String,
     pi_agent_dir: Option<PathBuf>,
     pi_bin: Option<PathBuf>,
+    extra_bins: Vec<(String, PathBuf)>,
     path_override: Option<std::ffi::OsString>,
     va_missing: bool,
 }
@@ -61,7 +70,15 @@ impl Fixture {
             "agents": {
                 "opencode": {"id": "opencode", "lane": "acp", "command": {"program": "opencode", "args": []}},
                 "devin": {"id": "devin", "lane": "acp", "command": {"program": "devin", "args": []}},
-                "pi": {"id": "pi", "lane": "rpc", "command": {"program": "pi", "args": []}}
+                "pi": {"id": "pi", "lane": "rpc", "command": {"program": "pi", "args": [
+                    "--mode", "rpc", "--approve",
+                    "--tools", "codemode,mcp__probator_audit__*",
+                    "--no-extensions",
+                    "-e", "builtin:mcp",
+                    "-e", "builtin:codemode",
+                    "-e", "builtin:tool-search",
+                    "--no-skills", "--no-prompt-templates", "--no-context-files"
+                ]}}
             },
             "profiles": {
                 "synthetic-reviewer": {"agent": "opencode", "permission": "read-only"},
@@ -129,6 +146,7 @@ impl Fixture {
             session: "acp-stub-session".into(),
             pi_agent_dir: None,
             pi_bin: None,
+            extra_bins: Vec::new(),
             path_override: None,
             va_missing: false,
         }
@@ -209,6 +227,9 @@ impl Fixture {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+        for (name, path) in &self.extra_bins {
+            cmd.env(format!("PROBATOR_{name}_BIN"), path);
+        }
         if let Some(dir) = &self.pi_agent_dir {
             cmd.env("PI_CODING_AGENT_DIR", dir);
         }
@@ -374,9 +395,9 @@ fn a_provider_quota_refusal_is_a_precise_permanent_diagnostic() {
 fn each_auditor_has_its_own_awp_principal() {
     for id in [
         "money-saver",
-        "clean-auditor",
+        "privacy-cleaner",
         "security-enhancer",
-        "sustainable-maintainer",
+        "codebase-maintainer",
     ] {
         let mut fixture = Fixture::new("complete");
         let mut contract: Value = serde_json::from_str(
@@ -1121,6 +1142,87 @@ fn a_path_shadowed_pi_does_not_replace_the_pinned_executable() {
     );
 }
 
+/// The audit-safe catalog is the packaged registry's whole agent set, not
+/// one blessed harness: a checker-named binding on the `devin` template is
+/// admitted on the same terms, with `PROBATOR_DEVIN_BIN` pinning its
+/// trusted installation and the pinned directory leading the child's PATH.
+#[test]
+fn a_non_pi_audit_template_is_admitted_on_the_same_terms() {
+    let mut fixture = Fixture::new("complete");
+    fixture.extra_bins.push(("DEVIN".into(), devin_stub()));
+    fixture.write_user_registry(&json!({
+        "agents": {
+            "devin-audit": {"id": "devin-audit", "clientName": "devin", "lane": "acp",
+                            "command": {"program": "devin", "args": []}}
+        },
+        "profiles": {
+            "audit-devin": {"agent": "devin-audit", "model": "", "permission": "read-only"}
+        },
+        "bindings": {
+            "synthetic-reviewer": {"profile": "audit-devin"}
+        }
+    }));
+    fixture.profile = "audit-devin".into();
+    fixture.agent = "devin-audit".into();
+    fixture.model = String::new();
+    fixture.session = "devin-audit-session".into();
+    let (ok, result) = fixture.invoke();
+    assert!(ok, "{result}");
+    assert_eq!(result["served"]["agent"], "devin-audit");
+    let spawned = fixture.records("va-spawned.jsonl");
+    let path = spawned[0]["path"].as_str().expect("the stub records PATH");
+    let pinned = devin_stub().canonicalize().unwrap();
+    assert_eq!(
+        std::env::split_paths(path).next().as_deref(),
+        pinned.parent(),
+        "the trusted harness directory must be first on the child's PATH"
+    );
+}
+
+/// Which harnesses a machine has is a discovery fact, not a precondition:
+/// a candidate matching a template whose binary is absent is refused —
+/// never silently rerouted to a different one.
+#[test]
+fn a_template_without_an_installed_harness_is_refused() {
+    let fixture = Fixture::new("complete");
+    let mut document = fixture.document();
+    document["agents"]["ghost"] = json!({
+        "id": "ghost", "lane": "rpc",
+        "command": {"program": "probator-ghost-fixture-bin", "args": []}
+    });
+    fixture.write_document(&document);
+    fixture.write_user_registry(&json!({
+        "agents": {
+            "ghost-audit": {"id": "ghost-audit", "lane": "rpc",
+                            "command": {"program": "probator-ghost-fixture-bin", "args": []}}
+        },
+        "profiles": {
+            "audit-ghost": {"agent": "ghost-audit", "model": "", "permission": "read-only"}
+        },
+        "bindings": {
+            "synthetic-reviewer": {"profile": "audit-ghost"}
+        }
+    }));
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert!(!fixture.spawned());
+}
+
+/// A candidate that drifts from the template beyond the program — a
+/// different lane, argv or environment — is not the gate's harness.
+#[test]
+fn a_template_shape_drift_is_refused() {
+    let fixture = Fixture::new("complete");
+    let mut registry = checker_named_user_registry();
+    registry["agents"]["pi-audit"]["command"]["args"] = json!(["--mode", "rpc"]);
+    fixture.write_user_registry(&registry);
+    let (ok, result) = fixture.invoke();
+    assert!(!ok, "{result}");
+    assert_eq!(result["failure"]["code"], "audit_candidate_not_admitted");
+    assert!(!fixture.spawned());
+}
+
 /// Without a checker-named binding the packaged installation document still
 /// owns the run-local `audit` binding, exactly as before this change.
 #[test]
@@ -1252,10 +1354,10 @@ fn a_client_default_model_is_admitted_for_a_checker_binding() {
 #[test]
 fn each_auditor_resolves_its_own_checker_named_binding() {
     for id in [
-        "clean-auditor",
+        "privacy-cleaner",
         "money-saver",
         "security-enhancer",
-        "sustainable-maintainer",
+        "codebase-maintainer",
     ] {
         let mut fixture = Fixture::new("complete");
         let mut contract: Value = serde_json::from_str(
