@@ -559,6 +559,36 @@ fn run_checker(name: &str, argv: &[String], repo: &str, env: &[(&str, String)]) 
         .collect()
 }
 
+/// Every checker bound to the event runs in its own thread: each reviewer
+/// owns its run directory and the shared stage-1 evidence document is a
+/// per-key store built for concurrent readers, so the only sequencing the
+/// gate needs is joining the handles in policy order before the findings
+/// print. A thread that dies before answering is a refusal, not a pass.
+fn run_checkers(
+    checkers: &[(String, Vec<String>)],
+    repo: &str,
+    env: &[(&str, String)],
+) -> Vec<Value> {
+    std::thread::scope(|scope| {
+        checkers
+            .iter()
+            .map(|(name, argv)| {
+                (
+                    name,
+                    scope.spawn(move || run_checker(name, argv, repo, env)),
+                )
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .flat_map(|(name, handle)| {
+                handle
+                    .join()
+                    .unwrap_or_else(|_| vec![high(format!("{name}: the checker thread panicked"))])
+            })
+            .collect()
+    })
+}
+
 /// Claim an exclusively owned 0700 directory under `base` and name the
 /// shared stage-1 evidence document inside it. The orchestrator owns this
 /// root; children never recreate a missing ancestor, so a failed claim just
@@ -629,10 +659,7 @@ pub fn run() -> i32 {
         if let Some(path) = &evidence {
             env.push(("PROBATOR_STAGE1_EVIDENCE", path.display().to_string()));
         }
-        let findings: Vec<Value> = checkers
-            .iter()
-            .flat_map(|(name, argv)| run_checker(name, argv, &target, &env))
-            .collect();
+        let findings = run_checkers(&checkers, &target, &env);
         if let Some(root) = evidence.as_deref().and_then(Path::parent) {
             let _ = std::fs::remove_dir_all(root);
         }
@@ -1384,6 +1411,45 @@ mod tests {
         );
         assert!(!message.contains("Reading privacy-cleaner"), "{message}");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The event's checkers dispatch concurrently: each script waits for
+    /// the other's start marker, so a serial loop would leave the first
+    /// one waiting out its bound and landing a refusal instead of a pass.
+    #[test]
+    fn checkers_bound_to_one_event_run_concurrently() {
+        let shared = std::env::temp_dir().join(format!(
+            "probator-gate-par-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&shared).unwrap();
+        let body = |own: &str, other: &str| {
+            format!(
+                "echo started > \"{r}/{own}\"\n\
+                 for n in $(seq 1 200); do\n\
+                 [ -f \"{r}/{other}\" ] && exit 0\n\
+                 sleep 0.05\n\
+                 done\n\
+                 echo \"partner {other} never appeared\" >&2\n\
+                 exit 1",
+                r = shared.display(),
+            )
+        };
+        let (dir_a, argv_a) = checker_script("parallel-a", &body("one", "two"));
+        let (dir_b, argv_b) = checker_script("parallel-b", &body("two", "one"));
+        let checkers = vec![
+            ("parallel-a".to_string(), argv_a),
+            ("parallel-b".to_string(), argv_b),
+        ];
+        let findings = run_checkers(&checkers, "/tmp/repo", &[]);
+        assert!(findings.is_empty(), "{findings:?}");
+        let _ = std::fs::remove_dir_all(dir_a);
+        let _ = std::fs::remove_dir_all(dir_b);
+        let _ = std::fs::remove_dir_all(shared);
     }
 
     /// Progress chatter alone is not a diagnosis. With no report the audit
