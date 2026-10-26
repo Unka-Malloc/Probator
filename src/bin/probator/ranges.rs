@@ -328,28 +328,61 @@ pub fn ranges_from(
     Ok(found)
 }
 
+/// The range inputs a resolution consumes. A caller's environment can
+/// carry other PROBATOR_* values - the shared-evidence path among them -
+/// which must never perturb the cache key or the resolved object.
+const RANGE_VARS: [&str; 8] = [
+    "PROBATOR_EVENT",
+    "PROBATOR_RELEASE_TAG",
+    "PROBATOR_RELEASE_COMMIT",
+    "PROBATOR_PR_HEAD",
+    "PROBATOR_PR_BASE",
+    "PROBATOR_PR_NUMBER",
+    "PROBATOR_PUSH_REFS",
+    "PROBATOR_HEAD",
+];
+
+/// Project `vars` down to the canonical range-input map: only the names
+/// `ranges_from` reads. `ranges()` feeds the process environment through
+/// the same projection, so an orchestrating gate that resolves before
+/// dispatch lands under exactly the key its children compute.
+fn range_vars(
+    vars: &serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut projected = serde_json::Map::new();
+    for name in RANGE_VARS {
+        if let Some(value) = vars.get(name).and_then(|v| v.as_str()) {
+            projected.insert(
+                name.to_string(),
+                serde_json::Value::String(value.to_string()),
+            );
+        }
+    }
+    projected
+}
+
+/// The event a resolution actually uses: the one the vars encode, with the
+/// caller's trigger as fallback when they carry none - the precedence
+/// `ranges()` applies to the process environment.
+fn effective_event<'a>(
+    trigger: &'a str,
+    vars: &'a serde_json::Map<String, serde_json::Value>,
+) -> &'a str {
+    vars.get("PROBATOR_EVENT")
+        .and_then(|v| v.as_str())
+        .filter(|event| !event.is_empty())
+        .unwrap_or(trigger)
+}
+
 /// The live form: the PROBATOR_* environment, read once.
 pub fn ranges(repo: &str) -> Result<Vec<Target>, String> {
     let mut vars = serde_json::Map::new();
-    for name in [
-        "PROBATOR_EVENT",
-        "PROBATOR_RELEASE_TAG",
-        "PROBATOR_RELEASE_COMMIT",
-        "PROBATOR_PR_HEAD",
-        "PROBATOR_PR_BASE",
-        "PROBATOR_PR_NUMBER",
-        "PROBATOR_PUSH_REFS",
-        "PROBATOR_HEAD",
-    ] {
+    for name in RANGE_VARS {
         if let Ok(value) = std::env::var(name) {
             vars.insert(name.to_string(), serde_json::Value::String(value));
         }
     }
-    let event = vars
-        .get("PROBATOR_EVENT")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let event = effective_event("", &vars).to_string();
     ranges_shared(
         repo,
         &event,
@@ -369,6 +402,13 @@ pub fn ranges_shared(
     vars: &serde_json::Map<String, serde_json::Value>,
     evidence: Option<&std::path::Path>,
 ) -> Result<Vec<Target>, String> {
+    // The canonical projection decides both the cache key and the resolved
+    // object: a prefetcher handing over its whole environment and a checker
+    // reading the process environment describe the same range, so the entry
+    // one fills is the entry the others hit.
+    let vars = range_vars(vars);
+    let vars = &vars;
+    let event = effective_event(event, vars);
     // Range resolution can fetch a remote head; the orchestrating run hands
     // every checker the same inputs, so the first resolution is recorded and
     // shared rather than fetched once per reviewer.
@@ -538,6 +578,76 @@ mod tests {
         )
         .expect("the repaired row hits");
         assert_eq!(second.len(), first.len());
+    }
+
+    #[test]
+    fn a_gate_prefetch_lands_under_the_child_key() {
+        let (repo, _head) = Repo::new();
+        let evidence_root = repo.0.join("evidence");
+        std::fs::create_dir(&evidence_root).unwrap();
+        let evidence = evidence_root.join("evidence.json");
+        let repo = repo.0.to_str().unwrap();
+
+        // The gate's map is its whole child environment: the working-tree
+        // event an unscoped pre-push produces plus the shared-evidence path
+        // it adds. The child reads only the range names from the process
+        // environment, so the prefetch must store under the projected key.
+        let gate_vars = json!({
+            "PROBATOR_EVENT": "working-tree",
+            "PROBATOR_STAGE1_EVIDENCE": evidence.display().to_string(),
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let child_key = format!(
+            "ranges/{}",
+            crate::util::sha256(&format!(
+                "{repo}\u{0}{repo_vars}",
+                repo_vars = {
+                    let mut vars = serde_json::Map::new();
+                    vars.insert("PROBATOR_EVENT".to_string(), json!("working-tree"));
+                    serde_json::to_string(&vars).unwrap()
+                }
+            ))
+        );
+
+        // An unscoped pre-push resolves through the vars' event, not the
+        // trigger: the working tree is the review object, never an empty
+        // push range.
+        let prefetched = ranges_shared(repo, "pre-push", &gate_vars, Some(evidence.as_path()))
+            .expect("the gate prefetch resolves");
+        assert_eq!(prefetched.len(), 1);
+        assert_eq!(prefetched[0].kind, "working-tree");
+        assert_eq!(
+            crate::stage1::evidence_get(&evidence, &child_key),
+            Some(serde_json::Value::Array(
+                prefetched.iter().map(Target::to_json).collect()
+            )),
+            "the prefetch stores under the key the children compute"
+        );
+
+        // A planted row under the child's key is what a later lookup
+        // serves: the projection means a checker reads the prefetched entry
+        // instead of recomputing around it.
+        let sentinel = Target {
+            kind: "push".to_string(),
+            label: "sentinel".to_string(),
+            base: None,
+            head: "f".repeat(40),
+            ref_: None,
+            scope: "snapshot".to_string(),
+        };
+        crate::stage1::evidence_store(
+            &evidence,
+            &child_key,
+            serde_json::Value::Array(vec![sentinel.to_json()]),
+        );
+        let joined = ranges_shared(repo, "pre-push", &gate_vars, Some(evidence.as_path()))
+            .expect("a checker joins on the cached entry");
+        assert_eq!(
+            joined.iter().map(Target::to_json).collect::<Vec<_>>(),
+            vec![sentinel.to_json()]
+        );
     }
 
     #[test]
