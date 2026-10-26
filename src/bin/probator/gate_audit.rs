@@ -661,15 +661,19 @@ pub fn run() -> i32 {
         }
         // The range is resolved once, here, before any checker starts: the
         // single fetch and snapshot scan land in the shared document under
-        // the same key the children compute from these PROBATOR_* values, so
-        // every spawned reviewer joins on a hit and no checker ever repeats
-        // the remote work. A resolution error is left for the children to
-        // report with their own context.
+        // the same key the children compute. Only the canonical range
+        // inputs go into that key - never the whole environment - and the
+        // event is the one the vars encode, exactly as the children's own
+        // resolution derives it, so an unscoped event pre-resolves the
+        // working tree rather than an empty push range. A resolution error
+        // is left for the children to report with their own context.
         if let Some(path) = evidence.as_deref() {
-            let vars: serde_json::Map<String, Value> = env
-                .iter()
-                .map(|(name, value)| ((*name).to_string(), Value::String(value.clone())))
-                .collect();
+            let vars = crate::ranges::range_vars(
+                &env.iter()
+                    .map(|(name, value)| ((*name).to_string(), Value::String(value.clone())))
+                    .collect(),
+            );
+            let event = crate::ranges::effective_event(event, &vars);
             let _ = crate::ranges::ranges_shared(&target, event, &vars, Some(path));
         }
         let findings = run_checkers(&checkers, &target, &env);

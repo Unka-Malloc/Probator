@@ -346,7 +346,7 @@ const RANGE_VARS: [&str; 8] = [
 /// `ranges_from` reads. `ranges()` feeds the process environment through
 /// the same projection, so an orchestrating gate that resolves before
 /// dispatch lands under exactly the key its children compute.
-fn range_vars(
+pub(crate) fn range_vars(
     vars: &serde_json::Map<String, serde_json::Value>,
 ) -> serde_json::Map<String, serde_json::Value> {
     let mut projected = serde_json::Map::new();
@@ -364,7 +364,7 @@ fn range_vars(
 /// The event a resolution actually uses: the one the vars encode, with the
 /// caller's trigger as fallback when they carry none - the precedence
 /// `ranges()` applies to the process environment.
-fn effective_event<'a>(
+pub(crate) fn effective_event<'a>(
     trigger: &'a str,
     vars: &'a serde_json::Map<String, serde_json::Value>,
 ) -> &'a str {
