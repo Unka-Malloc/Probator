@@ -106,7 +106,13 @@ fn range_env(event: &str, detail: &Map<String, Value>) -> Vec<(&'static str, Str
         .filter(|s| !s.is_empty())
     {
         Some("working-tree") => env.push(("PROBATOR_EVENT", "working-tree".to_string())),
-        Some(range) => env.push(("PROBATOR_HEAD", range.to_string())),
+        Some(range) => {
+            // A named head keeps the gate event: without it the child
+            // resolves the same commit with an empty kind and label while
+            // the prefetch resolves it with the real one.
+            env.push(("PROBATOR_HEAD", range.to_string()));
+            env.push(("PROBATOR_EVENT", event.to_string()));
+        }
         None => {
             let scoped = (event == "release"
                 && env.iter().any(|(var, _)| *var == "PROBATOR_RELEASE_COMMIT"))
@@ -570,7 +576,7 @@ fn run_checkers(
     env: &[(&str, String)],
 ) -> Vec<Value> {
     std::thread::scope(|scope| {
-        checkers
+        let handles: Vec<(&String, _)> = checkers
             .iter()
             .map(|(name, argv)| {
                 (
@@ -578,7 +584,12 @@ fn run_checkers(
                     scope.spawn(move || run_checker(name, argv, repo, env)),
                 )
             })
-            .collect::<Vec<_>>()
+            .collect();
+        // Join in policy order rather than completion order: the findings
+        // array is the gate's receipt, and it must read the same way the
+        // policy declared the rows regardless of which reviewer finished
+        // first.
+        handles
             .into_iter()
             .flat_map(|(name, handle)| {
                 handle
@@ -627,6 +638,23 @@ fn stage1_evidence_path() -> Option<PathBuf> {
         .clone()
 }
 
+/// Warm the shared range entry before the checkers start, so the one
+/// remote fetch or snapshot scan a resolution needs happens once instead
+/// of once per reviewer. Only the canonical range inputs go into the key
+/// and the event is the one the vars encode, exactly as the children's
+/// own resolution derives it - an unscoped event therefore pre-resolves
+/// the working tree rather than an empty push range. A resolution error
+/// is left for the children to report with their own context.
+fn prefetch_range(target: &str, trigger: &str, env: &[(&str, String)], evidence: &Path) {
+    let vars = crate::ranges::range_vars(
+        &env.iter()
+            .map(|(name, value)| ((*name).to_string(), Value::String(value.clone())))
+            .collect(),
+    );
+    let event = crate::ranges::effective_event(trigger, &vars);
+    let _ = crate::ranges::ranges_shared(target, event, &vars, Some(evidence));
+}
+
 pub fn run() -> i32 {
     let findings = (|| {
         let mut input = String::new();
@@ -659,22 +687,11 @@ pub fn run() -> i32 {
         if let Some(path) = &evidence {
             env.push(("PROBATOR_STAGE1_EVIDENCE", path.display().to_string()));
         }
-        // The range is resolved once, here, before any checker starts: the
-        // single fetch and snapshot scan land in the shared document under
-        // the same key the children compute. Only the canonical range
-        // inputs go into that key - never the whole environment - and the
-        // event is the one the vars encode, exactly as the children's own
-        // resolution derives it, so an unscoped event pre-resolves the
-        // working tree rather than an empty push range. A resolution error
-        // is left for the children to report with their own context.
+        // The range is resolved once, here, before any checker starts:
+        // every spawned reviewer joins on the prefetched entry rather than
+        // repeating the remote work.
         if let Some(path) = evidence.as_deref() {
-            let vars = crate::ranges::range_vars(
-                &env.iter()
-                    .map(|(name, value)| ((*name).to_string(), Value::String(value.clone())))
-                    .collect(),
-            );
-            let event = crate::ranges::effective_event(event, &vars);
-            let _ = crate::ranges::ranges_shared(&target, event, &vars, Some(path));
+            prefetch_range(&target, event, &env, path);
         }
         let findings = run_checkers(&checkers, &target, &env);
         if let Some(root) = evidence.as_deref().and_then(Path::parent) {
@@ -732,7 +749,10 @@ mod tests {
         let detail = json!({"range": "HEAD~3"}).as_object().unwrap().clone();
         assert_eq!(
             range_env("pre-push", &detail),
-            vec![("PROBATOR_HEAD", "HEAD~3".to_string())]
+            vec![
+                ("PROBATOR_HEAD", "HEAD~3".to_string()),
+                ("PROBATOR_EVENT", "pre-push".to_string()),
+            ]
         );
         let detail = json!({"tag": "v1", "commit": "abc"})
             .as_object()
