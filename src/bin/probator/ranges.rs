@@ -363,21 +363,28 @@ pub fn ranges(repo: &str) -> Result<Vec<Target>, String> {
             serde_json::to_string(&vars).unwrap_or_default()
         ))
     );
-    if let Some(cached) = crate::stage1::evidence_get(&evidence, &key)
-        && let Some(rows) = cached.as_array()
-    {
-        let targets: Vec<Target> = rows.iter().filter_map(Target::from_json).collect();
-        if targets.len() == rows.len() {
-            return Ok(targets);
+    // The single-flight claim keeps the first resolution's fetch and scan
+    // singular while the event's checkers run concurrently.
+    match crate::stage1::evidence_begin(&evidence, &key) {
+        crate::stage1::Evidence::Hit(cached) => {
+            if let Some(rows) = cached.as_array() {
+                let targets: Vec<Target> = rows.iter().filter_map(Target::from_json).collect();
+                if targets.len() == rows.len() {
+                    return Ok(targets);
+                }
+            }
+            // A stored row that does not decode is treated as a miss: the
+            // resolution runs again uncached rather than trusting it.
+            ranges_from(repo, &event, &vars)
+        }
+        crate::stage1::Evidence::Fill(fill) => {
+            let targets = ranges_from(repo, &event, &vars)?;
+            fill.store(serde_json::Value::Array(
+                targets.iter().map(Target::to_json).collect(),
+            ));
+            Ok(targets)
         }
     }
-    let targets = ranges_from(repo, &event, &vars)?;
-    crate::stage1::evidence_store(
-        &evidence,
-        &key,
-        serde_json::Value::Array(targets.iter().map(Target::to_json).collect()),
-    );
-    Ok(targets)
 }
 
 #[cfg(test)]

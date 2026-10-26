@@ -161,6 +161,136 @@ pub(crate) fn evidence_store(path: &Path, key: &str, value: Value) {
     }
 }
 
+// ---------------------------------------------------------- single-flight
+
+/// One shared cache key's fill duty, claimed across the concurrent
+/// checkers a gate event spawns. Without it every reviewer that misses
+/// the entry pays the same remote fetch and the same snapshot scan at
+/// once: `evidence_begin` hands the stored value to a caller that finds
+/// it, a `Fill` to the caller that must produce it, and has siblings wait
+/// behind a lock file rather than repeat the work. A lock owner is probed
+/// with the same `kill -0` the run custodian uses - a live owner is
+/// waited on without a wall-clock bound, and only its death hands the
+/// duty to the next claimant.
+pub(crate) enum Evidence<'a> {
+    Hit(Value),
+    Fill(Fill<'a>),
+}
+
+pub(crate) struct Fill<'a> {
+    path: &'a Path,
+    key: String,
+    /// Present only when this process created the lock; dropping removes
+    /// it so a failed compute frees the duty for the next claimant.
+    lock: Option<PathBuf>,
+}
+
+impl Fill<'_> {
+    /// Store the computed entry, then release the claim.
+    pub(crate) fn store(self, value: Value) {
+        evidence_store(self.path, &self.key, value);
+    }
+}
+
+impl Drop for Fill<'_> {
+    fn drop(&mut self) {
+        if let Some(lock) = &self.lock {
+            let _ = std::fs::remove_file(lock);
+        }
+    }
+}
+
+/// A live-pid probe through the same `kill -0` the run custodian uses.
+fn pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// The single-flight entry point: `Hit` when the entry already exists,
+/// `Fill` when this process owns the compute-and-store duty. A lock the
+/// caller cannot create at all degrades to an uncoordinated fill - the
+/// same work the no-cache path always paid, never a wrong verdict.
+pub(crate) fn evidence_begin<'a>(path: &'a Path, key: &str) -> Evidence<'a> {
+    let dir = path.with_extension("d");
+    // The entry dir is otherwise created on first store; a claim needs it
+    // up front, under the same rule - the orchestrator's missing ancestor
+    // is never recreated, so a cache that cannot open just fills plainly.
+    match std::fs::create_dir(&dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && dir.is_dir() => {}
+        Err(_) => {
+            return Evidence::Fill(Fill {
+                path,
+                key: key.to_string(),
+                lock: None,
+            });
+        }
+    }
+    let lock = dir.join(format!("{}.lock", crate::util::sha256(key)));
+    // An unreadable or empty lock can be mid-create between open and pid
+    // write; it earns a short grace before being treated as ownerless.
+    let mut grace = 0u8;
+    loop {
+        if let Some(hit) = evidence_get(path, key) {
+            return Evidence::Hit(hit);
+        }
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock)
+        {
+            Ok(mut file) => {
+                use std::io::Write as _;
+                let _ = writeln!(file, "{}", std::process::id());
+                // A sibling may have stored between our miss and our claim;
+                // release the lock we just took before handing back its entry.
+                if let Some(hit) = evidence_get(path, key) {
+                    drop(file);
+                    let _ = std::fs::remove_file(&lock);
+                    return Evidence::Hit(hit);
+                }
+                return Evidence::Fill(Fill {
+                    path,
+                    key: key.to_string(),
+                    lock: Some(lock),
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let owner = std::fs::read_to_string(&lock)
+                    .ok()
+                    .and_then(|text| text.trim().parse::<u32>().ok());
+                match owner {
+                    Some(pid) if pid_alive(pid) => {
+                        grace = 0;
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    _ if grace < 20 => {
+                        grace += 1;
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    _ => {
+                        grace = 0;
+                        let _ = std::fs::remove_file(&lock);
+                    }
+                }
+            }
+            Err(_) => {
+                return Evidence::Fill(Fill {
+                    path,
+                    key: key.to_string(),
+                    lock: None,
+                });
+            }
+        }
+    }
+}
+
 /// The paths an operation carries - one enumeration so the deterministic
 /// stage and the paid stage can never judge different sets. A range diffs
 /// NUL-delimited against its base; a snapshot lists the whole tree. Renames
@@ -419,35 +549,38 @@ fn clean_audit(repo: &str, target: &Target, opts: &Opts) -> Result<(String, Vec<
         }
         format!("scan/{}", crate::util::sha256(&parts))
     };
-    if let Some(cached) = evidence_get(&cache, &key) {
-        let why = cached["why"].as_str().unwrap_or_default().to_string();
-        let hits: Vec<Hit> = cached["hits"]
-            .as_array()
-            .map(|rows| {
-                rows.iter()
-                    .filter_map(|row| {
-                        Some(Hit {
-                            path: row["path"].as_str()?.to_string(),
-                            line: row["line"].as_u64()?,
-                            rule: row["rule"].as_str()?.to_string(),
-                            remedy: None,
+    // Single-flight: the first checker's sweep fills the shared key while
+    // siblings run concurrently on their own entries rather than paying
+    // the same immutable-snapshot scan again.
+    match evidence_begin(&cache, &key) {
+        Evidence::Hit(cached) => {
+            let why = cached["why"].as_str().unwrap_or_default().to_string();
+            let hits: Vec<Hit> = cached["hits"]
+                .as_array()
+                .map(|rows| {
+                    rows.iter()
+                        .filter_map(|row| {
+                            Some(Hit {
+                                path: row["path"].as_str()?.to_string(),
+                                line: row["line"].as_u64()?,
+                                rule: row["rule"].as_str()?.to_string(),
+                                remedy: None,
+                            })
                         })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        return Ok((why, hits));
+                        .collect()
+                })
+                .unwrap_or_default();
+            Ok((why, hits))
+        }
+        Evidence::Fill(fill) => {
+            let (why, hits) = clean_audit_scan(repo, target, &names)?;
+            fill.store(json!({
+                "why": why,
+                "hits": hits.iter().map(Hit::to_json).collect::<Vec<_>>(),
+            }));
+            Ok((why, hits))
+        }
     }
-    let (why, hits) = clean_audit_scan(repo, target, &names)?;
-    evidence_store(
-        &cache,
-        &key,
-        json!({
-            "why": why,
-            "hits": hits.iter().map(Hit::to_json).collect::<Vec<_>>(),
-        }),
-    );
-    Ok((why, hits))
 }
 
 /// Stage a batch spec file other local users cannot pre-plant: `create_new`
@@ -4158,6 +4291,50 @@ mod tests {
                 );
             }
         }
+        let _ = std::fs::remove_dir_all(path.with_extension("d"));
+    }
+
+    /// A miss races for the fill duty: the claimant computes and stores
+    /// while a sibling's `evidence_begin` waits out the lock and returns
+    /// the stored entry instead of paying the compute again.
+    #[test]
+    fn a_sibling_waits_for_the_fill_rather_than_recomputing() {
+        use super::{Evidence, evidence_begin};
+        let path = std::env::temp_dir().join(format!(
+            "probator-evf-{}-{:04x}",
+            std::process::id(),
+            rand::random::<u16>()
+        ));
+        let (claimed, claim_signal) = std::sync::mpsc::channel::<bool>();
+        let filler = std::thread::spawn({
+            let path = path.clone();
+            move || match evidence_begin(&path, "shared-key") {
+                Evidence::Fill(fill) => {
+                    let _ = claimed.send(true);
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    fill.store(serde_json::json!({"paid": 1}));
+                    true
+                }
+                Evidence::Hit(_) => {
+                    let _ = claimed.send(false);
+                    false
+                }
+            }
+        });
+        // The sibling's claim is proven before this one tries.
+        assert!(
+            claim_signal.recv().unwrap(),
+            "the first claim owns the fill"
+        );
+        let waited = match evidence_begin(&path, "shared-key") {
+            Evidence::Hit(value) => {
+                assert_eq!(value["paid"].as_u64(), Some(1));
+                true
+            }
+            Evidence::Fill(_) => false,
+        };
+        assert!(filler.join().unwrap(), "the first claim owns the fill");
+        assert!(waited, "the second claim waits and reuses the entry");
         let _ = std::fs::remove_dir_all(path.with_extension("d"));
     }
 }
