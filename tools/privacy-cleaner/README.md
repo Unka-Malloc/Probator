@@ -1,10 +1,10 @@
-# Clean Auditor
+# Privacy Cleaner
 
 Agent execution uses the shared A4AA-backed `probator-agent` runner.
 Build and install it as described in the [Probator runtime setup](../../README.md#agent-profiles)
 before installing or updating this checker.
 
-Clean Auditor is a blocking Probator checker that reviews what a push, a pull
+Privacy Cleaner is a blocking Probator checker that reviews what a push, a pull
 request or a merge request is about to publish, in two stages:
 
 1. **Deterministic, entirely local** — Probator's own scan of the outgoing
@@ -24,19 +24,19 @@ environment variable that widens the judgement.
 ## Install
 
 ```sh
-probator install --source tools/clean-auditor            # first install
-probator update --source tools/clean-auditor   # refresh payload and skill links
+probator install --source tools/privacy-cleaner            # first install
+probator update --source tools/privacy-cleaner   # refresh payload and skill links
 ```
 
-The installer creates the checker's private home `~/.local/share/probator/profiles/clean-auditor`,
+The installer creates the checker's private home `~/.local/share/probator/profiles/privacy-cleaner`,
 installs the contract payload and writes the checker's declared AwP registry
-document (the audit agent spec and binding the runner resolves), links the shared skill directory `~/.agents/skills/clean-auditor`
+document (the audit agent spec and binding the runner resolves), links the shared skill directory `~/.agents/skills/privacy-cleaner`
 into every agent skill directory it finds, and registers (or replaces in place)
 this entry in `$XDG_CONFIG_HOME/probator/checkers.toml` (or `~/.config/probator/checkers.toml`):
 
 ```toml
 [[checkers]]
-name = "clean-auditor"
+name = "privacy-cleaner"
 on = ["pre-push", "pr"]
 kind = "exec"
 severity = "blocking"
@@ -56,7 +56,7 @@ Four checks sit outside the six domains.
 
 **Withheld names** are decided by the deterministic stage, locally and for free.
 The list is machine state — `$XDG_CONFIG_HOME/probator/withheld-names.txt`,
-overridable with `CLEAN_AUDITOR_WITHHELD` — and never a repository file: the rule
+overridable with `PRIVACY_CLEANER_WITHHELD` — and never a repository file: the rule
 is public, the names it withholds are not, and a list kept in a repository would
 publish exactly what it protects. Why a list is needed at all: the existence of
 an unpublished project, or of the internal operations plane behind an
@@ -135,7 +135,7 @@ The deterministic stage judges credential containers (`.env`, `*.pem`,
 `*.key`, `secrets/`, `credentials*`, `.ssh/**`, `*.db`) — they are never handed
 to the semantic stage, because sending a key file to a cloud model is itself a
 leak. Receipts are sanitized before they are written; reports live under
-`~/.local/share/probator/profiles/clean-auditor/clean-auditor-runs/` and the run scope file
+`~/.local/share/probator/profiles/privacy-cleaner/privacy-cleaner-runs/` and the run scope file
 is deleted when the run ends.
 
 ## Syncing a published profile
@@ -145,8 +145,8 @@ which must be set explicitly; the local development registry is `http://127.0.0.
 that the registry is the source:
 
 ```sh
-probator pull --source tools/clean-auditor                 # newest published version
-probator pull --source tools/clean-auditor --tag profile/clean-auditor/v2   # a pinned version
+probator pull --source tools/privacy-cleaner                 # newest published version
+probator pull --source tools/privacy-cleaner --tag profile/privacy-cleaner/v2   # a pinned version
 ```
 
 The download is checked file by file (and as a whole, by manifest) before

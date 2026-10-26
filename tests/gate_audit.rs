@@ -136,7 +136,7 @@ fn a_crash_without_a_report_is_still_a_high_refusal() {
 fn an_aborted_skill_read_is_an_incomplete_audit_not_a_verdict() {
     let fixture = Fixture::new("aborted");
     fixture.checker(
-        "echo '**Reading clean-auditor skill failed: permission denied**' >&2\n\
+        "echo '**Reading privacy-cleaner skill failed: permission denied**' >&2\n\
          exit 1",
     );
     let findings = gate_findings(&fixture.gate());

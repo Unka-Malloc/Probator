@@ -754,7 +754,7 @@ mod tests {
                 }]
             }),
         );
-        let findings = findings_of_at("clean-auditor", &path, None, None);
+        let findings = findings_of_at("privacy-cleaner", &path, None, None);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0]["severity"], "high");
         assert_eq!(findings[0]["path"], "a.txt");
@@ -794,7 +794,7 @@ mod tests {
                 }]
             }),
         );
-        let findings = findings_of_at("clean-auditor", &path, None, None);
+        let findings = findings_of_at("privacy-cleaner", &path, None, None);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0]["severity"], "high");
         assert_eq!(findings[0]["path"], "b.txt");
@@ -810,10 +810,10 @@ mod tests {
         // the location-level ruling clears the carried blocker.
         let (ledger, anchor) = signed_waiver_ledger(
             &dir,
-            "id = \"waive-carried\"\nchecker = \"clean-auditor\"\nkind = \"finding\"\n\
+            "id = \"waive-carried\"\nchecker = \"privacy-cleaner\"\nkind = \"finding\"\n\
              file = \"b.txt\"\nline = 2\nverdict = \"overruled\"\n",
         );
-        assert!(findings_of_at("clean-auditor", &path, Some(&ledger), Some(&anchor)).is_empty());
+        assert!(findings_of_at("privacy-cleaner", &path, Some(&ledger), Some(&anchor)).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -845,7 +845,7 @@ mod tests {
                 }]
             }),
         );
-        let findings = findings_of_at("clean-auditor", &path, None, None);
+        let findings = findings_of_at("privacy-cleaner", &path, None, None);
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert_eq!(findings[0]["path"], "a.txt");
         let _ = std::fs::remove_dir_all(&dir);
@@ -881,7 +881,7 @@ mod tests {
                 }]
             }),
         );
-        let findings = findings_of_at("clean-auditor", &path, None, None);
+        let findings = findings_of_at("privacy-cleaner", &path, None, None);
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert_eq!(findings[0]["severity"], "high");
         assert_eq!(findings[0]["path"], "a.txt");
@@ -891,10 +891,10 @@ mod tests {
         // The waiver still names the merged blocking finding.
         let (ledger, anchor) = signed_waiver_ledger(
             &dir,
-            "id = \"waive-merged\"\nchecker = \"clean-auditor\"\nkind = \"finding\"\n\
+            "id = \"waive-merged\"\nchecker = \"privacy-cleaner\"\nkind = \"finding\"\n\
              file = \"a.txt\"\nline = 7\nverdict = \"overruled\"\n",
         );
-        assert!(findings_of_at("clean-auditor", &path, Some(&ledger), Some(&anchor)).is_empty());
+        assert!(findings_of_at("privacy-cleaner", &path, Some(&ledger), Some(&anchor)).is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1369,11 +1369,11 @@ mod tests {
     fn an_aborted_session_is_an_incomplete_audit_not_a_verdict() {
         let (dir, argv) = checker_script(
             "aborted",
-            "echo '**Reading clean-auditor skill**' >&2\n\
+            "echo '**Reading privacy-cleaner skill**' >&2\n\
              echo 'session aborted before submit' >&2\n\
              exit 1",
         );
-        let findings = run_checker("clean-auditor", &argv, "/tmp/repo", &[]);
+        let findings = run_checker("privacy-cleaner", &argv, "/tmp/repo", &[]);
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert_eq!(findings[0]["severity"], "high");
         let message = findings[0]["message"].as_str().unwrap();
@@ -1382,7 +1382,7 @@ mod tests {
             message.contains("session aborted before submit"),
             "{message}"
         );
-        assert!(!message.contains("Reading clean-auditor"), "{message}");
+        assert!(!message.contains("Reading privacy-cleaner"), "{message}");
         let _ = std::fs::remove_dir_all(dir);
     }
 

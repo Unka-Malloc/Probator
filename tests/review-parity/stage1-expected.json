@@ -1,6 +1,6 @@
 {
   "clean-credentials": {
-    "clean-auditor": {
+    "privacy-cleaner": {
       "ok": false,
       "summaries": [
         {
@@ -36,7 +36,7 @@
     }
   },
   "clean-withheld": {
-    "clean-auditor": {
+    "privacy-cleaner": {
       "ok": false,
       "summaries": [
         {
@@ -57,7 +57,7 @@
     }
   },
   "clean-withheld-except": {
-    "clean-auditor": {
+    "privacy-cleaner": {
       "ok": true,
       "summaries": [
         {
@@ -72,7 +72,7 @@
     }
   },
   "clean-none": {
-    "clean-auditor": {
+    "privacy-cleaner": {
       "ok": true,
       "summaries": [
         {
@@ -87,7 +87,7 @@
     }
   },
   "maintainer-conflict": {
-    "sustainable-maintainer": {
+    "codebase-maintainer": {
       "ok": false,
       "summaries": [
         {
@@ -119,7 +119,7 @@
     }
   },
   "maintainer-junk": {
-    "sustainable-maintainer": {
+    "codebase-maintainer": {
       "ok": false,
       "summaries": [
         {
@@ -151,7 +151,7 @@
     }
   },
   "maintainer-binary": {
-    "sustainable-maintainer": {
+    "codebase-maintainer": {
       "ok": true,
       "summaries": [
         {
@@ -167,7 +167,7 @@
     }
   },
   "maintainer-clean": {
-    "sustainable-maintainer": {
+    "codebase-maintainer": {
       "ok": true,
       "summaries": [
         {
@@ -514,7 +514,7 @@
     }
   },
   "maintainer-snapshot": {
-    "sustainable-maintainer": {
+    "codebase-maintainer": {
       "ok": false,
       "summaries": [
         {

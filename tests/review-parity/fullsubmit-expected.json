@@ -785,7 +785,7 @@
       "verdict": "block"
     }
   },
-  "sustainable-maintainer::valid-block": {
+  "codebase-maintainer::valid-block": {
     "report": {
       "verdict": "block",
       "summary": "Reviewed.",
@@ -859,7 +859,7 @@
       "verdict": "block"
     }
   },
-  "sustainable-maintainer::valid-pass": {
+  "codebase-maintainer::valid-pass": {
     "report": {
       "verdict": "pass",
       "summary": "Reviewed.",
@@ -923,7 +923,7 @@
       "verdict": "pass"
     }
   },
-  "sustainable-maintainer::charter-unread": {
+  "codebase-maintainer::charter-unread": {
     "report": {
       "verdict": "block",
       "summary": "Reviewed.",
@@ -996,7 +996,7 @@
       "error": "Read original_request before deciding"
     }
   },
-  "sustainable-maintainer::projects-missing": {
+  "codebase-maintainer::projects-missing": {
     "report": {
       "verdict": "block",
       "summary": "Reviewed.",
@@ -1063,7 +1063,7 @@
       "error": "projects must contain these exact keys: app"
     }
   },
-  "sustainable-maintainer::project-reviewed-unread": {
+  "codebase-maintainer::project-reviewed-unread": {
     "report": {
       "verdict": "block",
       "summary": "Reviewed.",
@@ -1134,7 +1134,7 @@
       "error": "Read the project's actual source before marking reviewed"
     }
   },
-  "sustainable-maintainer::project-unknown-pass": {
+  "codebase-maintainer::project-unknown-pass": {
     "report": {
       "verdict": "pass",
       "summary": "Reviewed.",
@@ -1197,7 +1197,7 @@
       "error": "Unknown project coverage cannot pass"
     }
   },
-  "sustainable-maintainer::finding-unlisted": {
+  "codebase-maintainer::finding-unlisted": {
     "report": {
       "verdict": "block",
       "summary": "Reviewed.",
@@ -1270,7 +1270,7 @@
       "error": "findings[0] must name one exact listed path and an existing positive integer line; use read to check its location"
     }
   },
-  "sustainable-maintainer::finding-bad-line": {
+  "codebase-maintainer::finding-bad-line": {
     "report": {
       "verdict": "block",
       "summary": "Reviewed.",
@@ -1343,7 +1343,7 @@
       "error": "findings[0] must name one exact listed path and an existing positive integer line; use read to check its location"
     }
   },
-  "sustainable-maintainer::finding-unread": {
+  "codebase-maintainer::finding-unread": {
     "report": {
       "verdict": "block",
       "summary": "Reviewed.",
@@ -1417,7 +1417,7 @@
       "error": "findings[0] source context has not been read; read that exact file before submission"
     }
   },
-  "sustainable-maintainer::finding-via-alias": {
+  "codebase-maintainer::finding-via-alias": {
     "report": {
       "verdict": "block",
       "summary": "Reviewed.",

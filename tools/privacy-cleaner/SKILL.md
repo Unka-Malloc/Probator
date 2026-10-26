@@ -1,11 +1,11 @@
 ---
-name: clean-auditor
-description: The privacy and confidentiality gate before publication. Use when changing anything that will be pushed, proposed in a pull request, or released, and when a Clean Auditor refusal needs to be understood or repaired. Covers privacy, business secrets, operational data, machine paths, personal information, credentials and content belonging to other repositories.
+name: privacy-cleaner
+description: The privacy and confidentiality gate before publication. Use when changing anything that will be pushed, proposed in a pull request, or released, and when a Privacy Cleaner refusal needs to be understood or repaired. Covers privacy, business secrets, operational data, machine paths, personal information, credentials and content belonging to other repositories.
 ---
 
-# Clean Auditor
+# Privacy Cleaner
 
-Publication happens at three boundaries, and Clean Auditor stands at two of
+Publication happens at three boundaries, and Privacy Cleaner stands at two of
 them: `pre-push` and `pr` (create and merge). `release create` is gated by
 the Security Enhancer. It reviews the outgoing range only, refuses when the
 change cannot be published, and never modifies anything.
@@ -52,5 +52,5 @@ self-check precedes the audit, it does not replace it.
   receipt written under an earlier contract did not answer the current
   questions.
 
-Full operation notes: `tools/clean-auditor/README.md` in the Probator
+Full operation notes: `tools/privacy-cleaner/README.md` in the Probator
 repository.

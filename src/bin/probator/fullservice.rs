@@ -543,10 +543,10 @@ mod tests {
     use crate::contract;
     use std::path::Path;
 
-    fn maintainer() -> contract::Contract {
+    fn codebase_maintainer() -> contract::Contract {
         contract::load(
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tools/sustainable-maintainer/contract.json")
+                .join("tools/codebase-maintainer/contract.json")
                 .as_path(),
         )
         .unwrap()
@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn eligibility_is_the_file_contract() {
-        let contract = maintainer();
+        let contract = codebase_maintainer();
         assert!(eligible(&contract, "src/main.rs"));
         assert!(eligible(&contract, "docs/guide.md"));
         assert!(eligible(&contract, "AGENTS.md"));

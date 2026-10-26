@@ -1,7 +1,7 @@
 [
   {
-    "name": "maintainer_context",
-    "description": "Inspect the immutable outgoing range. Start with inventory, then diff every changed file to its end; read is 400 lines with start and revision; list globs the snapshot; find is a literal search over the range — use it to locate the original a change duplicates, the callers a contract serves, or the documentation a decision should update. Credential containers are unavailable by design.",
+    "name": "privacy_context",
+    "description": "Inspect the immutable outgoing range. Start with inventory, then diff every changed file to its end; read is 400 lines with start; find is a literal search over the range. Credential containers are unavailable by design.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -44,8 +44,8 @@
     }
   },
   {
-    "name": "maintainer_submit_review",
-    "description": "Submit the final maintainability verdict once, with every domain accounted for.",
+    "name": "privacy_submit_review",
+    "description": "Submit the final privacy verdict once, with every domain and every standing item accounted for.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -63,7 +63,7 @@
         "coverage": {
           "type": "object",
           "properties": {
-            "structure": {
+            "privacy": {
               "type": "object",
               "properties": {
                 "status": {
@@ -84,7 +84,7 @@
               ],
               "additionalProperties": false
             },
-            "contracts": {
+            "business_secret": {
               "type": "object",
               "properties": {
                 "status": {
@@ -105,7 +105,7 @@
               ],
               "additionalProperties": false
             },
-            "craft": {
+            "operations_data": {
               "type": "object",
               "properties": {
                 "status": {
@@ -126,7 +126,7 @@
               ],
               "additionalProperties": false
             },
-            "duplication": {
+            "machine_path": {
               "type": "object",
               "properties": {
                 "status": {
@@ -147,7 +147,7 @@
               ],
               "additionalProperties": false
             },
-            "tests": {
+            "personal_info": {
               "type": "object",
               "properties": {
                 "status": {
@@ -168,7 +168,70 @@
               ],
               "additionalProperties": false
             },
-            "evolution": {
+            "credentials": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "tooling": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "hardcoding": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "reviewed",
+                    "not-applicable",
+                    "unknown"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "repository_scope": {
               "type": "object",
               "properties": {
                 "status": {
@@ -191,12 +254,15 @@
             }
           },
           "required": [
-            "structure",
-            "contracts",
-            "craft",
-            "duplication",
-            "tests",
-            "evolution"
+            "privacy",
+            "business_secret",
+            "operations_data",
+            "machine_path",
+            "personal_info",
+            "credentials",
+            "tooling",
+            "hardcoding",
+            "repository_scope"
           ],
           "additionalProperties": false
         },

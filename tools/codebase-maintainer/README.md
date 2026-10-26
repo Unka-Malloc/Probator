@@ -1,10 +1,10 @@
-# Sustainable Maintainer
+# Codebase Maintainer
 
 Agent execution uses the shared A4AA-backed `probator-agent` runner.
 Build and install it as described in the [Probator runtime setup](../../README.md#agent-profiles)
 before installing or updating this checker.
 
-Sustainable Maintainer is a blocking Probator checker that reviews what a push
+Codebase Maintainer is a blocking Probator checker that reviews what a push
 or a pull request is about to publish, in two stages:
 
 1. **Deterministic, entirely local** — a hygiene scan of the paths the
@@ -42,19 +42,19 @@ its structure when a real recurring constraint justifies it.
 ## Install
 
 ```sh
-probator install --source tools/sustainable-maintainer            # first install
-probator update --source tools/sustainable-maintainer   # refresh payload and skill links
+probator install --source tools/codebase-maintainer            # first install
+probator update --source tools/codebase-maintainer   # refresh payload and skill links
 ```
 
-The installer creates the checker's private home `~/.local/share/probator/profiles/sustainable-maintainer`,
+The installer creates the checker's private home `~/.local/share/probator/profiles/codebase-maintainer`,
 installs the contract payload and writes the checker's declared AwP registry
-document (the audit agent spec and binding the runner resolves), links the shared skill directory `~/.agents/skills/sustainable-maintainer`
+document (the audit agent spec and binding the runner resolves), links the shared skill directory `~/.agents/skills/codebase-maintainer`
 into every agent skill directory it finds, and registers (or replaces in place)
 this entry in `$XDG_CONFIG_HOME/probator/checkers.toml` (or `~/.config/probator/checkers.toml`):
 
 ```toml
 [[checkers]]
-name = "sustainable-maintainer"
+name = "codebase-maintainer"
 on = ["pre-push", "pr"]
 kind = "exec"
 severity = "blocking"
@@ -111,7 +111,7 @@ review never needs to read a key file. The deterministic stage itself judges
 what hygiene never needs judgement — conflict markers, merge-tool artifacts
 and editor/OS junk. Receipts are sanitized before they are written; reports
 live under
-`~/.local/share/probator/profiles/sustainable-maintainer/sustainable-maintainer-runs/` and
+`~/.local/share/probator/profiles/codebase-maintainer/codebase-maintainer-runs/` and
 the run scope file is deleted when the run ends.
 
 ## Syncing a published profile
@@ -121,8 +121,8 @@ which must be set explicitly; the local development registry is `http://127.0.0.
 that the registry is the source:
 
 ```sh
-probator pull --source tools/sustainable-maintainer                             # newest published version
-probator pull --source tools/sustainable-maintainer --tag profile/sustainable-maintainer/v1   # a pinned version
+probator pull --source tools/codebase-maintainer                             # newest published version
+probator pull --source tools/codebase-maintainer --tag profile/codebase-maintainer/v1   # a pinned version
 ```
 
 The download is checked file by file (and as a whole, by manifest) before

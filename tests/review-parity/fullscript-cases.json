@@ -1,7 +1,7 @@
 [
   {
     "name": "full-maintainer",
-    "checker": "sustainable-maintainer",
+    "checker": "codebase-maintainer",
     "snapshot": {
       "files": {
         "app/src/main.rs": "fn main() {\n    let needle = 1;\n}\n",

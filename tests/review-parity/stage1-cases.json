@@ -1,7 +1,7 @@
 [
   {
     "name": "clean-credentials",
-    "checkers": ["clean-auditor"],
+    "checkers": ["privacy-cleaner"],
     "base": {"src/old.py": "b64:b2xkID0gInNrLWFhYWExMTExYmJiYjIyMjJjY2NjIgo=", "src/app.py": "token = None\n"},
     "head": {
       "src/old.py": "old = None\n",
@@ -15,14 +15,14 @@
   },
   {
     "name": "clean-withheld",
-    "checkers": ["clean-auditor"],
+    "checkers": ["privacy-cleaner"],
     "withheld_lines": ["Secret Project"],
     "base": {"README.md": "# x\n"},
     "head": {"README.md": "# x\n", "docs/plan.md": "The secret-project ships Friday\n"}
   },
   {
     "name": "clean-withheld-except",
-    "checkers": ["clean-auditor"],
+    "checkers": ["privacy-cleaner"],
     "withheld_lines": ["Repo except secret"],
     "origin": "https://example.invalid/secret/repo.git",
     "base": {"README.md": "# x\n"},
@@ -30,13 +30,13 @@
   },
   {
     "name": "clean-none",
-    "checkers": ["clean-auditor"],
+    "checkers": ["privacy-cleaner"],
     "base": {"src/app.py": "x = 1\n"},
     "head": {"src/app.py": "x = 2\n"}
   },
   {
     "name": "maintainer-conflict",
-    "checkers": ["sustainable-maintainer"],
+    "checkers": ["codebase-maintainer"],
     "base": {"src/a.rs": "fn a() {}\n", "docs/guide.md": "# Guide\n"},
     "head": {
       "src/a.rs": "fn a() {}\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n",
@@ -45,7 +45,7 @@
   },
   {
     "name": "maintainer-junk",
-    "checkers": ["sustainable-maintainer"],
+    "checkers": ["codebase-maintainer"],
     "base": {"old.rej": "reject\n", ".gitkeep": ""},
     "head": {
       "old.rej": null,
@@ -58,13 +58,13 @@
   },
   {
     "name": "maintainer-binary",
-    "checkers": ["sustainable-maintainer"],
+    "checkers": ["codebase-maintainer"],
     "base": {"README.md": "# x\n"},
     "head": {"README.md": "# x\n", "logo.png": "PNG\u0000raw\n<<<<<<< HEAD\n"}
   },
   {
     "name": "maintainer-clean",
-    "checkers": ["sustainable-maintainer"],
+    "checkers": ["codebase-maintainer"],
     "base": {"src/main.rs": "fn main() {}\n"},
     "head": {"src/main.rs": "fn main() { println!(\"ok\"); }\n"}
   },
@@ -157,7 +157,7 @@
   },
   {
     "name": "maintainer-snapshot",
-    "checkers": ["sustainable-maintainer"],
+    "checkers": ["codebase-maintainer"],
     "base": null,
     "head": {"src/a.rs": "fn a() {}\n<<<<<<< HEAD\nx\n>>>>>>> b\n", "junk.swp": "x\n"}
   }

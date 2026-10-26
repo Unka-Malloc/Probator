@@ -208,10 +208,10 @@ mod tests {
     #[test]
     fn manifests_match_the_engine_goldens() {
         for checker in [
-            "clean-auditor",
+            "privacy-cleaner",
             "money-saver",
             "security-enhancer",
-            "sustainable-maintainer",
+            "codebase-maintainer",
         ] {
             let contract = load_checker(checker);
             let produced = manifest(&contract, Mode::Gate, &[]);
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn full_service_manifests_match_the_engine_goldens() {
         let projects = vec!["demo-app".to_string()];
-        for checker in ["money-saver", "sustainable-maintainer"] {
+        for checker in ["money-saver", "codebase-maintainer"] {
             let contract = load_checker(checker);
             let produced = manifest(&contract, Mode::FullService, &projects);
             assert_eq!(

@@ -1,11 +1,11 @@
 ---
-name: sustainable-maintainer
-description: The long-term maintainability gate before publication. Use when changing anything that will be pushed or proposed in a pull request, and when a Sustainable Maintainer refusal needs to be understood or repaired. Covers module structure, contracts, craft, duplication, tests and evolution residue — and gives architectural advice for keeping the repository maintainable.
+name: codebase-maintainer
+description: The long-term maintainability gate before publication. Use when changing anything that will be pushed or proposed in a pull request, and when a Codebase Maintainer refusal needs to be understood or repaired. Covers module structure, contracts, craft, duplication, tests and evolution residue — and gives architectural advice for keeping the repository maintainable.
 ---
 
-# Sustainable Maintainer
+# Codebase Maintainer
 
-Sustainable Maintainer stands at two publication boundaries: `pre-push` and
+Codebase Maintainer stands at two publication boundaries: `pre-push` and
 `pr` (create and merge). It reviews the outgoing range only, refuses when the
 change should not be published as it stands, and never modifies anything.
 Beyond the gate it returns advisory findings: specific, evidence-based
@@ -65,7 +65,7 @@ the same gate/advice weights apply to the whole current source; coverage is
 accounted per project as well as per domain, and a finding must name an exact
 listed path and line the reviewer actually read. A full-service report is
 private to the operator: it never blocks publication and never approves a
-later commit. Full operation notes: `tools/sustainable-maintainer/README.md`
+later commit. Full operation notes: `tools/codebase-maintainer/README.md`
 in the Probator repository.
 
 ## Boundaries worth knowing
@@ -78,5 +78,5 @@ in the Probator repository.
   because a receipt written under an earlier contract did not answer the
   current questions.
 
-Full operation notes: `tools/sustainable-maintainer/README.md` in the
+Full operation notes: `tools/codebase-maintainer/README.md` in the
 Probator repository.

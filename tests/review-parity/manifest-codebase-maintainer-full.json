@@ -1,6 +1,6 @@
 [
   {
-    "name": "maintainer_context",
+    "name": "codebase_context",
     "description": "Inspect the immutable snapshot. Start with inventory for mode and scope, then original_request (the review charter); list/find glob and page the snapshot, read returns numbered source. Full mode requires per-project and per-domain coverage.",
     "parameters": {
       "type": "object",
@@ -44,7 +44,7 @@
     }
   },
   {
-    "name": "maintainer_submit_review",
+    "name": "codebase_submit_review",
     "description": "Submit the final maintainability verdict once, with every domain accounted for.",
     "parameters": {
       "type": "object",

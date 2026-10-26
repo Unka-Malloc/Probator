@@ -1,6 +1,6 @@
 {
-  "name": "clean-auditor",
-  "title": "Clean Auditor",
+  "name": "privacy-cleaner",
+  "title": "Privacy Cleaner",
   "summary": "Privacy and confidentiality gate: no personal data, business secrets, credentials or machine paths are published.",
   "domains": ["privacy", "business_secret", "operations_data", "machine_path", "personal_info", "credentials", "tooling", "hardcoding", "repository_scope"],
   "finding_keys": ["file", "line", "severity", "evidence", "impact", "remedy", "validation"],
@@ -14,7 +14,7 @@
   "on": ["pre-push", "pr"],
   "severity": "blocking",
   "tools": {
-    "name_prefix": "clean",
+    "name_prefix": "privacy",
     "context": [
       "inventory",
       "list",
@@ -28,5 +28,5 @@
       "submit": "Submit the final privacy verdict once, with every domain and every standing item accounted for."
     }
   },
-  "task": "Review the outgoing changes with the Clean Auditor tools and submit one final verdict: start with inventory, read every changed diff to its end, then judge all six domains and every standing item — whether the project's tooling keeps its data out of the range, whether its parameters live in configuration rather than in code, and whether every file's subject belongs to this repository rather than a different one. No arbitrary turn or time limit applies."
+  "task": "Review the outgoing changes with the Privacy Cleaner tools and submit one final verdict: start with inventory, read every changed diff to its end, then judge all six domains and every standing item — whether the project's tooling keeps its data out of the range, whether its parameters live in configuration rather than in code, and whether every file's subject belongs to this repository rather than a different one. No arbitrary turn or time limit applies."
 }

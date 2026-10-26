@@ -88,8 +88,8 @@ contract by registry tag in the signed `config.toml`:
 
 ```toml
 [[checkers]]
-name = "sustainable-maintainer"
-contract = "profile/sustainable-maintainer/v6"
+name = "codebase-maintainer"
+contract = "profile/codebase-maintainer/v6"
 on = ["pre-push", "pr"]
 ```
 

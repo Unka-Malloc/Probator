@@ -70,7 +70,7 @@
       "required": ["name_prefix", "context", "submit", "descriptions"],
       "additionalProperties": false,
       "properties": {
-        "name_prefix": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$", "description": "Tool names are derived: <prefix>_context, <prefix>_submit_review, <prefix>_official_doc. The prefix is data because the four published prefixes predate derivation and no rule reproduces them (sustainable-maintainer is 'maintainer')."},
+        "name_prefix": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$", "description": "Tool names are derived: <prefix>_context, <prefix>_submit_review, <prefix>_official_doc. The prefix is data because the four published prefixes predate derivation and no rule reproduces them (codebase-maintainer is 'codebase')."},
         "context": {
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": {"type": "string", "enum": ["inventory", "original_request", "list", "diff", "read", "find"]},
@@ -79,7 +79,7 @@
         "context_full_service": {
           "type": "array", "minItems": 1, "uniqueItems": true,
           "items": {"type": "string", "enum": ["inventory", "original_request", "list", "diff", "read", "find"]},
-          "description": "The verb list in full-service mode when it differs from gate mode (Sustainable Maintainer drops diff and adds original_request). Requires full_service=true; defaults to context."
+          "description": "The verb list in full-service mode when it differs from gate mode (codebase-maintainer drops diff and adds original_request). Requires full_service=true; defaults to context."
         },
         "submit": {"type": "boolean", "const": true},
         "official_documents": {"type": "boolean", "default": false, "description": "Whether the reviewer gets the catalogued official-document fetcher (Money Saver). Implies: the catalog in the inventory reply, findings' sources typed as catalogued URLs, submit validation that sources are fetched URLs and that applicable coverage cites at least one document, and the official_sources receipt field."},
@@ -116,7 +116,7 @@
       "properties": {
         "suffixes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^\\.[a-z0-9]+$"}, "description": "Source suffixes the snapshot includes."},
         "manifests": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"}, "description": "Exact file names the snapshot includes regardless of suffix."},
-        "exclude_names": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"}, "description": "Exact base names excluded beyond the engine's shared hygiene set (Sustainable Maintainer excludes lockfiles: generated integrity data, not reviewable structure)."}
+        "exclude_names": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"}, "description": "Exact base names excluded beyond the engine's shared hygiene set (codebase-maintainer excludes lockfiles: generated integrity data, not reviewable structure)."}
       },
       "description": "The file contract of a full-service snapshot: which files the reviewer may read. Requires tools.full_service=true. The runtime's shared hygiene (vendored/build/cache directories, generated suffixes, the sensitive-path contract) always applies and is not repeated here."
     },

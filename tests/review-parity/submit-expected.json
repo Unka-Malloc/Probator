@@ -1,5 +1,5 @@
 {
-  "clean-auditor": {
+  "privacy-cleaner": {
     "valid-pass": {
       "report": {
         "verdict": "pass",
@@ -3003,7 +3003,7 @@
       }
     }
   },
-  "sustainable-maintainer": {
+  "codebase-maintainer": {
     "valid-pass": {
       "report": {
         "verdict": "pass",
