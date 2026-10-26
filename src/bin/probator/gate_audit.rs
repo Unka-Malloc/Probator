@@ -659,6 +659,19 @@ pub fn run() -> i32 {
         if let Some(path) = &evidence {
             env.push(("PROBATOR_STAGE1_EVIDENCE", path.display().to_string()));
         }
+        // The range is resolved once, here, before any checker starts: the
+        // single fetch and snapshot scan land in the shared document under
+        // the same key the children compute from these PROBATOR_* values, so
+        // every spawned reviewer joins on a hit and no checker ever repeats
+        // the remote work. A resolution error is left for the children to
+        // report with their own context.
+        if let Some(path) = evidence.as_deref() {
+            let vars: serde_json::Map<String, Value> = env
+                .iter()
+                .map(|(name, value)| ((*name).to_string(), Value::String(value.clone())))
+                .collect();
+            let _ = crate::ranges::ranges_shared(&target, event, &vars, Some(path));
+        }
         let findings = run_checkers(&checkers, &target, &env);
         if let Some(root) = evidence.as_deref().and_then(Path::parent) {
             let _ = std::fs::remove_dir_all(root);

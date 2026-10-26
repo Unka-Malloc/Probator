@@ -350,11 +350,30 @@ pub fn ranges(repo: &str) -> Result<Vec<Target>, String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    ranges_shared(
+        repo,
+        &event,
+        &vars,
+        crate::stage1::shared_evidence_path().as_deref(),
+    )
+}
+
+/// The cached form with the inputs supplied directly: the orchestrating gate
+/// holds the same PROBATOR_* map it hands its children, so resolving here -
+/// before dispatch - fills the shared document once and every spawned
+/// checker joins on a hit rather than fetching per reviewer. A caller
+/// without shared evidence resolves plainly.
+pub fn ranges_shared(
+    repo: &str,
+    event: &str,
+    vars: &serde_json::Map<String, serde_json::Value>,
+    evidence: Option<&std::path::Path>,
+) -> Result<Vec<Target>, String> {
     // Range resolution can fetch a remote head; the orchestrating run hands
     // every checker the same inputs, so the first resolution is recorded and
     // shared rather than fetched once per reviewer.
-    let Some(evidence) = crate::stage1::shared_evidence_path() else {
-        return ranges_from(repo, &event, &vars);
+    let Some(evidence) = evidence else {
+        return ranges_from(repo, event, vars);
     };
     let key = format!(
         "ranges/{}",
@@ -365,7 +384,7 @@ pub fn ranges(repo: &str) -> Result<Vec<Target>, String> {
     );
     // The single-flight claim keeps the first resolution's fetch and scan
     // singular while the event's checkers run concurrently.
-    match crate::stage1::evidence_begin(&evidence, &key) {
+    match crate::stage1::evidence_begin(evidence, &key) {
         crate::stage1::Evidence::Hit(cached) => {
             if let Some(rows) = cached.as_array() {
                 let targets: Vec<Target> = rows.iter().filter_map(Target::from_json).collect();
@@ -376,16 +395,16 @@ pub fn ranges(repo: &str) -> Result<Vec<Target>, String> {
             // A stored row that does not decode is a refill miss under the
             // same key: resolve again and overwrite it with the validated
             // array rather than leaving every later reader to recompute.
-            let targets = ranges_from(repo, &event, &vars)?;
+            let targets = ranges_from(repo, event, vars)?;
             crate::stage1::evidence_store(
-                &evidence,
+                evidence,
                 &key,
                 serde_json::Value::Array(targets.iter().map(Target::to_json).collect()),
             );
             Ok(targets)
         }
         crate::stage1::Evidence::Fill(fill) => {
-            let targets = ranges_from(repo, &event, &vars)?;
+            let targets = ranges_from(repo, event, vars)?;
             fill.store(serde_json::Value::Array(
                 targets.iter().map(Target::to_json).collect(),
             ));
@@ -468,6 +487,57 @@ mod tests {
             .expect("an unfetched tip still resolves");
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].base, None, "unfetched tip: whole snapshot");
+    }
+
+    #[test]
+    fn a_malformed_cached_row_is_refilled_and_served_thereafter() {
+        let (repo, head) = Repo::new();
+        let evidence_root = repo.0.join("evidence");
+        // The orchestrator claims the private root; entries never create it.
+        std::fs::create_dir(&evidence_root).unwrap();
+        let evidence = evidence_root.join("evidence.json");
+        let zero = "0".repeat(40);
+        let refs = format!("refs/heads/main {head} refs/heads/main {zero}\n");
+        let vars = push_vars(&refs);
+
+        // Seed the exact key with an entry that cannot decode into targets.
+        let key = format!(
+            "ranges/{}",
+            crate::util::sha256(&format!(
+                "{}\u{0}{}",
+                repo.0.to_str().unwrap(),
+                serde_json::to_string(&vars).unwrap_or_default()
+            ))
+        );
+        crate::stage1::evidence_store(&evidence, &key, json!({"not": "targets"}));
+
+        // The malformed row is a refill miss: resolution runs again and
+        // overwrites the entry with the validated array.
+        let first = ranges_shared(
+            repo.0.to_str().unwrap(),
+            "pre-push",
+            &vars,
+            Some(evidence.as_path()),
+        )
+        .expect("a malformed row refills");
+        assert_eq!(first.len(), 1);
+        assert_eq!(
+            crate::stage1::evidence_get(&evidence, &key),
+            Some(serde_json::Value::Array(
+                first.iter().map(Target::to_json).collect()
+            )),
+            "the refilled entry is what later readers decode"
+        );
+
+        // A second lookup reads the repaired array instead of re-resolving.
+        let second = ranges_shared(
+            repo.0.to_str().unwrap(),
+            "pre-push",
+            &vars,
+            Some(evidence.as_path()),
+        )
+        .expect("the repaired row hits");
+        assert_eq!(second.len(), first.len());
     }
 
     #[test]
