@@ -373,9 +373,16 @@ pub fn ranges(repo: &str) -> Result<Vec<Target>, String> {
                     return Ok(targets);
                 }
             }
-            // A stored row that does not decode is treated as a miss: the
-            // resolution runs again uncached rather than trusting it.
-            ranges_from(repo, &event, &vars)
+            // A stored row that does not decode is a refill miss under the
+            // same key: resolve again and overwrite it with the validated
+            // array rather than leaving every later reader to recompute.
+            let targets = ranges_from(repo, &event, &vars)?;
+            crate::stage1::evidence_store(
+                &evidence,
+                &key,
+                serde_json::Value::Array(targets.iter().map(Target::to_json).collect()),
+            );
+            Ok(targets)
         }
         crate::stage1::Evidence::Fill(fill) => {
             let targets = ranges_from(repo, &event, &vars)?;

@@ -47,7 +47,13 @@ probator update --source tools/codebase-maintainer   # refresh payload and skill
 ```
 
 The installer creates the checker's private home `~/.local/share/probator/profiles/codebase-maintainer`,
-installs the contract payload and writes the checker's declared AwP registry
+installs the contract payload and writes the checker's declared AwP registry.
+Migrating from `sustainable-maintainer`: the renamed checker does not
+inherit the old profile or ledger — remove the stale `sustainable-maintainer`
+row from `~/.config/probator/checkers.toml` and delete
+`~/.local/share/probator/profiles/sustainable-maintainer` plus
+`~/.agents/skills/sustainable-maintainer` once the old name's records are no
+longer needed, so a machine never runs both spellings.
 document (the audit agent spec and binding the runner resolves), links the shared skill directory `~/.agents/skills/codebase-maintainer`
 into every agent skill directory it finds, and registers (or replaces in place)
 this entry in `$XDG_CONFIG_HOME/probator/checkers.toml` (or `~/.config/probator/checkers.toml`):

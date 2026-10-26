@@ -114,7 +114,7 @@ reason like every other item.
 
 ## Evidence and decisions
 
-Start with `clean_context` inventory, then `diff` for EVERY changed file
+Start with `privacy_context` inventory, then `diff` for EVERY changed file
 (including removals), following each diff `next_offset` until it is null. Read
 outgoing files and related callers/config only as needed; use literal `find` to
 locate dependencies. Do not re-review identical evidence or run repetitive
@@ -138,7 +138,7 @@ outcome when the change cannot be published as it stands.
 
 ## Finish once
 
-Call `clean_submit_review` exactly once with verdict `pass`, `block`, or
+Call `privacy_submit_review` exactly once with verdict `pass`, `block`, or
 `incomplete`, including summary, coverage (each of the six domains and all
 three standing items with reviewed/not-applicable/unknown and why), findings and
 unknowns.

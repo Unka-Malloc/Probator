@@ -234,7 +234,10 @@ pub(crate) fn evidence_begin<'a>(path: &'a Path, key: &str) -> Evidence<'a> {
     }
     let lock = dir.join(format!("{}.lock", crate::util::sha256(key)));
     // An unreadable or empty lock can be mid-create between open and pid
-    // write; it earns a short grace before being treated as ownerless.
+    // write; it earns a short grace before being treated as ownerless. Both
+    // wait branches share one poll rhythm and one grace bound, defined here.
+    const LOCK_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+    const LOCK_GRACE_POLLS: u8 = 20;
     let mut grace = 0u8;
     loop {
         if let Some(hit) = evidence_get(path, key) {
@@ -268,11 +271,11 @@ pub(crate) fn evidence_begin<'a>(path: &'a Path, key: &str) -> Evidence<'a> {
                 match owner {
                     Some(pid) if pid_alive(pid) => {
                         grace = 0;
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        std::thread::sleep(LOCK_POLL);
                     }
-                    _ if grace < 20 => {
+                    _ if grace < LOCK_GRACE_POLLS => {
                         grace += 1;
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        std::thread::sleep(LOCK_POLL);
                     }
                     _ => {
                         grace = 0;
@@ -464,7 +467,13 @@ fn withheld_names(path: Option<&PathBuf>, repo_slug: &str) -> Vec<String> {
     let path = match path {
         Some(path) => path.clone(),
         None => {
-            if let Ok(overridden) = std::env::var("PRIVACY_CLEANER_WITHHELD") {
+            // Deployments that pinned a private list under the previous checker
+            // name keep their protection through the migration window: the new
+            // variable wins, the old one still answers while it is the only
+            // one set.
+            if let Ok(overridden) = std::env::var("PRIVACY_CLEANER_WITHHELD")
+                .or_else(|_| std::env::var("CLEAN_AUDITOR_WITHHELD"))
+            {
                 let overridden = overridden.trim();
                 if !overridden.is_empty() {
                     PathBuf::from(overridden)

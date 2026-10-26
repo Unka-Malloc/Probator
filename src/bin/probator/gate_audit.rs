@@ -1430,8 +1430,10 @@ mod tests {
         let body = |own: &str, other: &str| {
             format!(
                 "echo started > \"{r}/{own}\"\n\
-                 for n in $(seq 1 200); do\n\
+                 n=0\n\
+                 while [ $n -lt 200 ]; do\n\
                  [ -f \"{r}/{other}\" ] && exit 0\n\
+                 n=$((n + 1))\n\
                  sleep 0.05\n\
                  done\n\
                  echo \"partner {other} never appeared\" >&2\n\
