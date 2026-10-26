@@ -579,10 +579,10 @@ fn run_checkers(
         let handles: Vec<(&String, _)> = checkers
             .iter()
             .map(|(name, argv)| {
-                (
-                    name,
-                    scope.spawn(move || run_checker(name, argv, repo, env)),
-                )
+                // Every capture is already a shared borrow: the scoped
+                // thread may borrow the policy rows and the child
+                // environment for its whole life, so `move` buys nothing.
+                (name, scope.spawn(|| run_checker(name, argv, repo, env)))
             })
             .collect();
         // Join in policy order rather than completion order: the findings
