@@ -924,12 +924,7 @@ mod tests {
             .collect();
         assert_eq!(
             fallback_profiles,
-            [
-                "sample-checker-pi",
-                "sample-checker-dsh-commandcode",
-                "sample-checker-codex",
-                "sample-checker-dsh-deepseek",
-            ]
+            ["sample-checker-pi", "sample-checker-codex",]
         );
         // Every packaged profile declares the read-only posture its lane
         // either enforces natively or receives through the audit projection.
@@ -979,12 +974,7 @@ mod tests {
                 .iter()
                 .map(|f| f.profile())
                 .collect::<Vec<_>>(),
-            [
-                "sample-checker-pi",
-                "sample-checker-dsh-commandcode",
-                "sample-checker-codex",
-                "sample-checker-dsh-deepseek",
-            ]
+            ["sample-checker-pi", "sample-checker-codex"]
         );
         // The written file round-trips through the same path the runner uses.
         let target = dir.join("target");

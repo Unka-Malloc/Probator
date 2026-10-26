@@ -115,29 +115,6 @@
         }
       ]
     },
-    "dsh": {
-      "id": "dsh",
-      "clientName": "DeepSeek Harness",
-      "lane": "acp",
-      "command": {
-        "program": {
-          "resolve": [
-            "dsh",
-            "{home}/.local/bin/dsh"
-          ]
-        },
-        "args": [
-          "acp",
-          "--patch",
-          "{home}/.local/share/probator/dsh-audit-patch.yml"
-        ],
-        "env": {
-          "inheritAll": {
-            "set": {}
-          }
-        }
-      }
-    },
     "pi": {
       "id": "pi",
       "lane": "rpc",
@@ -419,49 +396,9 @@
       "effort": "max",
       "permission": "read-only"
     },
-    "{checker}-dsh-commandcode": {
-      "agent": "dsh",
-      "model": "[\"command-code\",\"deepseek/deepseek-v4.1-flash\"]",
-      "effort": "max",
-      "mcpServers": [
-        {
-          "name": "probator-audit",
-          "command": "{home}/.local/bin/probator",
-          "args": [
-            "serve",
-            "--contract",
-            "{home}/.local/share/probator/profiles/{checker}/plugins/{checker}/contract.json",
-            "--run",
-            "."
-          ],
-          "env": []
-        }
-      ],
-      "permission": "read-only"
-    },
     "{checker}-codex": {
       "agent": "codex",
       "model": "openai/gpt-6-luna",
-      "effort": "max",
-      "mcpServers": [
-        {
-          "name": "probator-audit",
-          "command": "{home}/.local/bin/probator",
-          "args": [
-            "serve",
-            "--contract",
-            "{home}/.local/share/probator/profiles/{checker}/plugins/{checker}/contract.json",
-            "--run",
-            "."
-          ],
-          "env": []
-        }
-      ],
-      "permission": "read-only"
-    },
-    "{checker}-dsh-deepseek": {
-      "agent": "dsh",
-      "model": "[\"deepseek-official\",\"deepseek-flash\"]",
       "effort": "max",
       "mcpServers": [
         {
@@ -485,69 +422,7 @@
       "profile": "{checker}",
       "fallbacks": [
         "{checker}-pi",
-        {
-          "profile": "{checker}-dsh-commandcode",
-          "availability": {
-            "windows": [
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "00:00",
-                "to": "01:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "04:00",
-                "to": "06:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "10:00",
-                "to": "00:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "sat,sun",
-                "from": "00:00",
-                "to": "00:00",
-                "timezone": "UTC"
-              }
-            ]
-          }
-        },
-        "{checker}-codex",
-        {
-          "profile": "{checker}-dsh-deepseek",
-          "availability": {
-            "windows": [
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "00:00",
-                "to": "01:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "04:00",
-                "to": "06:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "mon,tue,wed,thu,fri",
-                "from": "10:00",
-                "to": "00:00",
-                "timezone": "UTC"
-              },
-              {
-                "days": "sat,sun",
-                "from": "00:00",
-                "to": "00:00",
-                "timezone": "UTC"
-              }
-            ]
-          }
-        }
+        "{checker}-codex"
       ]
     }
   },
