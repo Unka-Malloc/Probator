@@ -579,10 +579,13 @@ fn run_checkers(
         let handles: Vec<(&String, _)> = checkers
             .iter()
             .map(|(name, argv)| {
-                // Every capture is already a shared borrow: the scoped
-                // thread may borrow the policy rows and the child
-                // environment for its whole life, so `move` buys nothing.
-                (name, scope.spawn(|| run_checker(name, argv, repo, env)))
+                // The spawned closure owns its borrows outright: `move`
+                // keeps the reviewer's name and argv live for the whole
+                // thread life regardless of how the captures read.
+                (
+                    name,
+                    scope.spawn(move || run_checker(name, argv, repo, env)),
+                )
             })
             .collect();
         // Join in policy order rather than completion order: the findings
