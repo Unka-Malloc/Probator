@@ -30,6 +30,19 @@
         "title": "The static security checklist over the outgoing revision",
         "kind": "builtin",
         "builtin": "static-checklist"
+      },
+      {
+        "id": "protection-surface-self-mutation",
+        "title": "Repository content must not write to its own protection surface",
+        "kind": "regex",
+        "target": "revision-lines",
+        "pattern": "(?i)(-X\\s*(patch|put|post|delete)\\b.{0,140}(rulesets|branches/[^\\s\"']+/protection|actions/(permissions|secrets|variables)|environments/[^\\s\"']+/protection)|(createRepo[R]uleset|updateRepo[R]uleset|deleteRepo[R]uleset|updateBranch[P]rotection|deleteBranch[P]rotection|createOrUpdateRepo[S]ecret|deleteRepo[S]ecret|createOrUpdateRepo[V]ariable|updateRepo[V]ariable|deleteRepo[V]ariable)\\b|\\br[R]ulesets?\\w*\\b.{0,40}\\b(apply|enforce|patch|disable|delete)\\b)"
+      },
+      {
+        "id": "protection-surface-authority",
+        "title": "The protected object must not carry its own protection controls",
+        "kind": "prompt",
+        "prompt": "The outgoing tree may not contain mutation paths to the repository's own publication or protection surface - rulesets, branch protection, Actions permissions, secrets or variables administration, environment protection or workflow self-amendment beyond review. Read-only verification may name the surface it checks; mutation belongs to the operator outside the checkout. Judge every file and workflow in the revision, including builder-style code that constructs the write across lines."
       }
     ]
   },

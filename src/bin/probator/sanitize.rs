@@ -65,7 +65,7 @@ static ENV_LINE: LazyLock<Regex> = LazyLock::new(|| {
 const LOCAL_PATH_MARKERS: [&str; 5] = [
     "/Users/",
     "/home/",
-    "/var/folders/",
+    "/var/_folders/",
     "C:\\Users\\",
     "C:/Users/",
 ];
