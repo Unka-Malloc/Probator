@@ -986,6 +986,7 @@ dependencies = [
  "hmac",
  "http",
  "jiff",
+ "libc",
  "pulldown-cmark",
  "rand",
  "regex",

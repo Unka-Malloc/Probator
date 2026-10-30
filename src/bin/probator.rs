@@ -354,6 +354,7 @@ fn main() -> ExitCode {
                     contract.stage1.as_ref().map_or(&[], |stage1| &stage1.rules);
                 let opts = stage1::Opts {
                     withheld_path: withheld,
+                    machine_roots: None,
                 };
                 match stage1::audit_all(
                     &repo.to_string_lossy(),
@@ -440,6 +441,7 @@ fn main() -> ExitCode {
                 &rules,
                 &stage1::Opts {
                     withheld_path: None,
+                    machine_roots: None,
                 },
                 false,
             ) {
