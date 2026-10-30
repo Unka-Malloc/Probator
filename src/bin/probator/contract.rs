@@ -32,11 +32,12 @@ pub const EVENTS: [&str; 7] = [
 /// The deterministic checks the runtime ships as code. A contract names them;
 /// it never carries executable text. Each builtin owns one coupled scan pass
 /// whose internal hit ordering and refusal priority are its semantics.
-pub const BUILTINS: [&str; 4] = [
+pub const BUILTINS: [&str; 5] = [
     "withheld-names-and-credentials",
     "dependency-direction",
     "workspace-hygiene",
     "static-checklist",
+    "commit-identity",
 ];
 /// What a regex rule's pattern applies to.
 pub const RULE_TARGETS: [&str; 4] = [

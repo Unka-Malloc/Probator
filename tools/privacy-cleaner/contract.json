@@ -1,32 +1,69 @@
 {
-  "name": "privacy-cleaner",
-  "title": "Privacy Cleaner",
-  "summary": "Privacy and confidentiality gate: no personal data, business secrets, credentials or machine paths are published.",
-  "domains": ["privacy", "business_secret", "operations_data", "machine_path", "personal_info", "credentials", "tooling", "hardcoding", "repository_scope"],
-  "finding_keys": ["file", "line", "severity", "evidence", "impact", "remedy", "validation"],
-  "stage1": {
-    "label": "deterministic",
-    "rules": [
-      {"id": "withheld-names-and-credentials", "title": "Withheld names and credential shapes, scanned over the whole revision", "kind": "builtin", "builtin": "withheld-names-and-credentials"},
-      {"id": "dependency-direction", "title": "Named sibling-repository references must follow the dependency direction", "kind": "builtin", "builtin": "dependency-direction"}
-    ]
-  },
-  "on": ["pre-push", "pr"],
-  "severity": "blocking",
-  "tools": {
-    "name_prefix": "privacy",
-    "context": [
-      "inventory",
-      "list",
-      "diff",
-      "read",
-      "find"
-    ],
-    "submit": true,
-    "descriptions": {
-      "context": "Inspect the immutable outgoing range. Start with inventory, then diff every changed file to its end; read is {read_page_lines} lines with start; find is a literal search over the range. Credential containers are unavailable by design.",
-      "submit": "Submit the final privacy verdict once, with every domain and every standing item accounted for."
-    }
-  },
-  "task": "Review the outgoing changes with the Privacy Cleaner tools and submit one final verdict: start with inventory, read every changed diff to its end, then judge all six domains and every standing item — whether the project's tooling keeps its data out of the range, whether its parameters live in configuration rather than in code, and whether every file's subject belongs to this repository rather than a different one. No arbitrary turn or time limit applies."
+ "name": "privacy-cleaner",
+ "title": "Privacy Cleaner",
+ "summary": "Privacy and confidentiality gate: no personal data, business secrets, credentials or machine paths are published.",
+ "domains": [
+  "privacy",
+  "business_secret",
+  "operations_data",
+  "machine_path",
+  "personal_info",
+  "credentials",
+  "tooling",
+  "hardcoding",
+  "repository_scope"
+ ],
+ "finding_keys": [
+  "file",
+  "line",
+  "severity",
+  "evidence",
+  "impact",
+  "remedy",
+  "validation"
+ ],
+ "stage1": {
+  "label": "deterministic",
+  "rules": [
+   {
+    "id": "withheld-names-and-credentials",
+    "title": "Withheld names and credential shapes, scanned over the whole revision",
+    "kind": "builtin",
+    "builtin": "withheld-names-and-credentials"
+   },
+   {
+    "id": "commit-identity",
+    "title": "Commit author, committer and attribution metadata over the range: no agent identities, no machine mailboxes, no gitconfig placeholders",
+    "kind": "builtin",
+    "builtin": "commit-identity"
+   },
+   {
+    "id": "dependency-direction",
+    "title": "Named sibling-repository references must follow the dependency direction",
+    "kind": "builtin",
+    "builtin": "dependency-direction"
+   }
+  ]
+ },
+ "on": [
+  "pre-push",
+  "pr"
+ ],
+ "severity": "blocking",
+ "tools": {
+  "name_prefix": "privacy",
+  "context": [
+   "inventory",
+   "list",
+   "diff",
+   "read",
+   "find"
+  ],
+  "submit": true,
+  "descriptions": {
+   "context": "Inspect the immutable outgoing range. Start with inventory, then diff every changed file to its end; read is {read_page_lines} lines with start; find is a literal search over the range. Credential containers are unavailable by design.",
+   "submit": "Submit the final privacy verdict once, with every domain and every standing item accounted for."
+  }
+ },
+ "task": "Review the outgoing changes with the Privacy Cleaner tools and submit one final verdict: start with inventory, read every changed diff to its end, then judge all six domains and every standing item — whether the project's tooling keeps its data out of the range, whether its parameters live in configuration rather than in code, and whether every file's subject belongs to this repository rather than a different one. No arbitrary turn or time limit applies."
 }

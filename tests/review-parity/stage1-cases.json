@@ -1,164 +1,294 @@
 [
-  {
-    "name": "clean-credentials",
-    "checkers": ["privacy-cleaner"],
-    "base": {"src/old.py": "b64:b2xkID0gInNrLWFhYWExMTExYmJiYjIyMjJjY2NjIgo=", "src/app.py": "token = None\n"},
-    "head": {
-      "src/old.py": "old = None\n",
-      "src/app.py": "b64:a2V5ID0gInNrLTAxMjM0NTY3ODlhYmNkZWZnaGlqIgo=",
-      "src/aws.py": "b64:YXdzID0gIkFLSUFJT1NGT0ROTjdFWEFNUExFIgo=",
-      "src/keys.pem.txt": "b64:LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCnh5egotLS0tLUVORCBQUklWQVRFIEtFWS0tLS0tCg==",
-      "src/github.py": "b64:dCA9ICJnaHBfMDEyMzQ1Njc4OWFiY2RlZmdoaWowMTIzNDU2Nzg5YWJjZGVmIgo=",
-      "src/lookalike.py": "task_live_0123456789abcdefghij\n",
-      "notes.md": "nothing to see\n"
-    }
+ {
+  "name": "clean-credentials",
+  "checkers": [
+   "privacy-cleaner"
+  ],
+  "base": {
+   "src/old.py": "b64:b2xkID0gInNrLWFhYWExMTExYmJiYjIyMjJjY2NjIgo=",
+   "src/app.py": "token = None\n"
   },
-  {
-    "name": "clean-withheld",
-    "checkers": ["privacy-cleaner"],
-    "withheld_lines": ["Secret Project"],
-    "base": {"README.md": "# x\n"},
-    "head": {"README.md": "# x\n", "docs/plan.md": "The secret-project ships Friday\n"}
-  },
-  {
-    "name": "clean-withheld-except",
-    "checkers": ["privacy-cleaner"],
-    "withheld_lines": ["Repo except secret"],
-    "origin": "https://example.invalid/secret/repo.git",
-    "base": {"README.md": "# x\n"},
-    "head": {"README.md": "# x\n", "docs/about.md": "this repo does things\n"}
-  },
-  {
-    "name": "clean-none",
-    "checkers": ["privacy-cleaner"],
-    "base": {"src/app.py": "x = 1\n"},
-    "head": {"src/app.py": "x = 2\n"}
-  },
-  {
-    "name": "maintainer-conflict",
-    "checkers": ["codebase-maintainer"],
-    "base": {"src/a.rs": "fn a() {}\n", "docs/guide.md": "# Guide\n"},
-    "head": {
-      "src/a.rs": "fn a() {}\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n",
-      "docs/guide.md": "# Guide\n\n=======\n\nA heading underline, not a marker.\n"
-    }
-  },
-  {
-    "name": "maintainer-junk",
-    "checkers": ["codebase-maintainer"],
-    "base": {"old.rej": "reject\n", ".gitkeep": ""},
-    "head": {
-      "old.rej": null,
-      ".gitkeep": "",
-      "notes.orig": "backup\n",
-      ".DS_Store": "junk\n",
-      "src/._sidecar": "appledouble\n",
-      "src/main.rs": "fn main() {}\n"
-    }
-  },
-  {
-    "name": "maintainer-binary",
-    "checkers": ["codebase-maintainer"],
-    "base": {"README.md": "# x\n"},
-    "head": {"README.md": "# x\n", "logo.png": "PNG\u0000raw\n<<<<<<< HEAD\n"}
-  },
-  {
-    "name": "maintainer-clean",
-    "checkers": ["codebase-maintainer"],
-    "base": {"src/main.rs": "fn main() {}\n"},
-    "head": {"src/main.rs": "fn main() { println!(\"ok\"); }\n"}
-  },
-  {
-    "name": "security-ci",
-    "checkers": ["security-enhancer"],
-    "base": {".github/workflows/ci.yml": "name: ci\non: [push]\n"},
-    "head": {".github/workflows/ci.yml": "name: ci\non:\n  pull_request_target:\npermissions: write-all\njobs:\n  x:\n    steps:\n      - uses: actions/checkout@main\n      - run: curl https://example.invalid/install.sh | sh\n"}
-  },
-  {
-    "name": "security-dockerfile",
-    "checkers": ["security-enhancer"],
-    "base": {"README.md": "# x\n"},
-    "head": {
-      "README.md": "# x\n",
-      "Dockerfile": "FROM ubuntu\nUSER root\nRUN chmod 777 /data\nARG AWS_SECRET_ACCESS_KEY=hunter2\nARG TOKEN=changeme\nFROM alpine@sha256:abc123\nFROM busybox:latest\n"
-    }
-  },
-  {
-    "name": "security-removals",
-    "checkers": ["security-enhancer"],
-    "base": {".gitignore": ".env\ndist/\n", ".github/CODEOWNERS": "* @team\n"},
-    "head": {".gitignore": "dist/\n", ".github/CODEOWNERS": "# moved\n"}
-  },
-  {
-    "name": "security-surfaces",
-    "checkers": ["security-enhancer"],
-    "base": {"README.md": "# x\n"},
-    "head": {
-      "README.md": "# x\n",
-      "package.json": "{\n  \"dependencies\": {\"x\": \"git+https://example.invalid/x.git\"},\n  \"scripts\": {\"prepare\": \"run-x\"}\n}\n",
-      "requirements.txt": "git+https://example.invalid/lib.git\n",
-      "Cargo.toml": "[dependencies]\nserde = { git = \"https://example.invalid/serde\" }\n",
-      "go.mod": "module x\nreplace x => ../local/x\n",
-      ".npmrc": "ignore-scripts=false\n",
-      "src/config.rs": "const A: &str = \"http://staging02.acmetest.dev/x\";\nconst B: &str = \"http://example.com/ok\";\nconst C: &str = \"10.1.2.3\";\nconst D: &str = \"http://db.acme.internal/\";\n",
-      "build.rs": "fn main() {}\n"
-    }
-  },
-  {
-    "name": "security-lockfile",
-    "checkers": ["security-enhancer"],
-    "base": {"package.json": "{\"dependencies\": {}}\n", "package-lock.json": "{}\n", "Cargo.toml": "[package]\n", "Cargo.lock": "# lock\n"},
-    "head": {
-      "package.json": "{\"dependencies\": {\"x\": \"1.0.0\"}}\n",
-      "package-lock.json": "{}\n",
-      "Cargo.toml": "[package]\nname = \"x\"\n",
-      "Cargo.lock": "# lock\n# more\n"
-    }
-  },
-  {
-    "name": "security-cors",
-    "checkers": ["security-enhancer"],
-    "base": {"src/server.rs": "fn serve() {}\n"},
-    "head": {
-      "src/server.rs": "fn serve() {}\n",
-      "src/cors.rs": "allow_origins = [\"*\"]\nallow_credentials = True\n",
-      "src/other.rs": "allow_origins = [\"*\"]\n"
-    }
-  },
-  {
-    "name": "security-runtime",
-    "checkers": ["security-enhancer"],
-    "base": {"src/config.py": "verify = True\n"},
-    "head": {
-      "src/config.py": "b64:dmVyaWZ5ID0gRmFsc2UKREVCVUcgPSBUcnVlCg==",
-      "README.md": "b64:dmVyaWZ5ID0gRmFsc2UgaW4gb2xkIHNldHVwcwo="
-    }
-  },
-  {
-    "name": "security-skipped-and-clean",
-    "checkers": ["security-enhancer"],
-    "base": {"src/ok.rs": "fn ok() {}\n"},
-    "head": {
-      "src/ok.rs": "fn ok() { let x = 1; }\n",
-      "node_modules/pkg/index.js": "b64:dmVyaWZ5ID0gRmFsc2UK"
-    }
-  },
-  {
-    "name": "security-credential-file",
-    "checkers": ["security-enhancer"],
-    "base": {"README.md": "# x\n"},
-    "head": {"README.md": "# x\n", "id_rsa": "synthetic\n"}
-  },
-  {
-    "name": "security-snapshot",
-    "checkers": ["security-enhancer"],
-    "base": null,
-    "head": {"src/config.py": "b64:dmVyaWZ5ID0gRmFsc2UK", "src/ok.rs": "fn ok() {}\n"}
-  },
-  {
-    "name": "maintainer-snapshot",
-    "checkers": ["codebase-maintainer"],
-    "base": null,
-    "head": {"src/a.rs": "fn a() {}\n<<<<<<< HEAD\nx\n>>>>>>> b\n", "junk.swp": "x\n"}
+  "head": {
+   "src/old.py": "old = None\n",
+   "src/app.py": "b64:a2V5ID0gInNrLTAxMjM0NTY3ODlhYmNkZWZnaGlqIgo=",
+   "src/aws.py": "b64:YXdzID0gIkFLSUFJT1NGT0ROTjdFWEFNUExFIgo=",
+   "src/keys.pem.txt": "b64:LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCnh5egotLS0tLUVORCBQUklWQVRFIEtFWS0tLS0tCg==",
+   "src/github.py": "b64:dCA9ICJnaHBfMDEyMzQ1Njc4OWFiY2RlZmdoaWowMTIzNDU2Nzg5YWJjZGVmIgo=",
+   "src/lookalike.py": "task_live_0123456789abcdefghij\n",
+   "notes.md": "nothing to see\n"
   }
+ },
+ {
+  "name": "clean-withheld",
+  "checkers": [
+   "privacy-cleaner"
+  ],
+  "withheld_lines": [
+   "Secret Project"
+  ],
+  "base": {
+   "README.md": "# x\n"
+  },
+  "head": {
+   "README.md": "# x\n",
+   "docs/plan.md": "The secret-project ships Friday\n"
+  }
+ },
+ {
+  "name": "clean-withheld-except",
+  "checkers": [
+   "privacy-cleaner"
+  ],
+  "withheld_lines": [
+   "Repo except secret"
+  ],
+  "origin": "https://example.invalid/secret/repo.git",
+  "base": {
+   "README.md": "# x\n"
+  },
+  "head": {
+   "README.md": "# x\n",
+   "docs/about.md": "this repo does things\n"
+  }
+ },
+ {
+  "name": "clean-none",
+  "checkers": [
+   "privacy-cleaner"
+  ],
+  "base": {
+   "src/app.py": "x = 1\n"
+  },
+  "head": {
+   "src/app.py": "x = 2\n"
+  }
+ },
+ {
+  "name": "maintainer-conflict",
+  "checkers": [
+   "codebase-maintainer"
+  ],
+  "base": {
+   "src/a.rs": "fn a() {}\n",
+   "docs/guide.md": "# Guide\n"
+  },
+  "head": {
+   "src/a.rs": "fn a() {}\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n",
+   "docs/guide.md": "# Guide\n\n=======\n\nA heading underline, not a marker.\n"
+  }
+ },
+ {
+  "name": "maintainer-junk",
+  "checkers": [
+   "codebase-maintainer"
+  ],
+  "base": {
+   "old.rej": "reject\n",
+   ".gitkeep": ""
+  },
+  "head": {
+   "old.rej": null,
+   ".gitkeep": "",
+   "notes.orig": "backup\n",
+   ".DS_Store": "junk\n",
+   "src/._sidecar": "appledouble\n",
+   "src/main.rs": "fn main() {}\n"
+  }
+ },
+ {
+  "name": "maintainer-binary",
+  "checkers": [
+   "codebase-maintainer"
+  ],
+  "base": {
+   "README.md": "# x\n"
+  },
+  "head": {
+   "README.md": "# x\n",
+   "logo.png": "PNG\u0000raw\n<<<<<<< HEAD\n"
+  }
+ },
+ {
+  "name": "maintainer-clean",
+  "checkers": [
+   "codebase-maintainer"
+  ],
+  "base": {
+   "src/main.rs": "fn main() {}\n"
+  },
+  "head": {
+   "src/main.rs": "fn main() { println!(\"ok\"); }\n"
+  }
+ },
+ {
+  "name": "security-ci",
+  "checkers": [
+   "security-enhancer"
+  ],
+  "base": {
+   ".github/workflows/ci.yml": "name: ci\non: [push]\n"
+  },
+  "head": {
+   ".github/workflows/ci.yml": "name: ci\non:\n  pull_request_target:\npermissions: write-all\njobs:\n  x:\n    steps:\n      - uses: actions/checkout@main\n      - run: curl https://example.invalid/install.sh | sh\n"
+  }
+ },
+ {
+  "name": "security-dockerfile",
+  "checkers": [
+   "security-enhancer"
+  ],
+  "base": {
+   "README.md": "# x\n"
+  },
+  "head": {
+   "README.md": "# x\n",
+   "Dockerfile": "FROM ubuntu\nUSER root\nRUN chmod 777 /data\nARG AWS_SECRET_ACCESS_KEY=hunter2\nARG TOKEN=changeme\nFROM alpine@sha256:abc123\nFROM busybox:latest\n"
+  }
+ },
+ {
+  "name": "security-removals",
+  "checkers": [
+   "security-enhancer"
+  ],
+  "base": {
+   ".gitignore": ".env\ndist/\n",
+   ".github/CODEOWNERS": "* @team\n"
+  },
+  "head": {
+   ".gitignore": "dist/\n",
+   ".github/CODEOWNERS": "# moved\n"
+  }
+ },
+ {
+  "name": "security-surfaces",
+  "checkers": [
+   "security-enhancer"
+  ],
+  "base": {
+   "README.md": "# x\n"
+  },
+  "head": {
+   "README.md": "# x\n",
+   "package.json": "{\n  \"dependencies\": {\"x\": \"git+https://example.invalid/x.git\"},\n  \"scripts\": {\"prepare\": \"run-x\"}\n}\n",
+   "requirements.txt": "git+https://example.invalid/lib.git\n",
+   "Cargo.toml": "[dependencies]\nserde = { git = \"https://example.invalid/serde\" }\n",
+   "go.mod": "module x\nreplace x => ../local/x\n",
+   ".npmrc": "ignore-scripts=false\n",
+   "src/config.rs": "const A: &str = \"http://staging02.acmetest.dev/x\";\nconst B: &str = \"http://example.com/ok\";\nconst C: &str = \"10.1.2.3\";\nconst D: &str = \"http://db.acme.internal/\";\n",
+   "build.rs": "fn main() {}\n"
+  }
+ },
+ {
+  "name": "security-lockfile",
+  "checkers": [
+   "security-enhancer"
+  ],
+  "base": {
+   "package.json": "{\"dependencies\": {}}\n",
+   "package-lock.json": "{}\n",
+   "Cargo.toml": "[package]\n",
+   "Cargo.lock": "# lock\n"
+  },
+  "head": {
+   "package.json": "{\"dependencies\": {\"x\": \"1.0.0\"}}\n",
+   "package-lock.json": "{}\n",
+   "Cargo.toml": "[package]\nname = \"x\"\n",
+   "Cargo.lock": "# lock\n# more\n"
+  }
+ },
+ {
+  "name": "security-cors",
+  "checkers": [
+   "security-enhancer"
+  ],
+  "base": {
+   "src/server.rs": "fn serve() {}\n"
+  },
+  "head": {
+   "src/server.rs": "fn serve() {}\n",
+   "src/cors.rs": "allow_origins = [\"*\"]\nallow_credentials = True\n",
+   "src/other.rs": "allow_origins = [\"*\"]\n"
+  }
+ },
+ {
+  "name": "security-runtime",
+  "checkers": [
+   "security-enhancer"
+  ],
+  "base": {
+   "src/config.py": "verify = True\n"
+  },
+  "head": {
+   "src/config.py": "b64:dmVyaWZ5ID0gRmFsc2UKREVCVUcgPSBUcnVlCg==",
+   "README.md": "b64:dmVyaWZ5ID0gRmFsc2UgaW4gb2xkIHNldHVwcwo="
+  }
+ },
+ {
+  "name": "security-skipped-and-clean",
+  "checkers": [
+   "security-enhancer"
+  ],
+  "base": {
+   "src/ok.rs": "fn ok() {}\n"
+  },
+  "head": {
+   "src/ok.rs": "fn ok() { let x = 1; }\n",
+   "node_modules/pkg/index.js": "b64:dmVyaWZ5ID0gRmFsc2UK"
+  }
+ },
+ {
+  "name": "security-credential-file",
+  "checkers": [
+   "security-enhancer"
+  ],
+  "base": {
+   "README.md": "# x\n"
+  },
+  "head": {
+   "README.md": "# x\n",
+   "id_rsa": "synthetic\n"
+  }
+ },
+ {
+  "name": "security-snapshot",
+  "checkers": [
+   "security-enhancer"
+  ],
+  "base": null,
+  "head": {
+   "src/config.py": "b64:dmVyaWZ5ID0gRmFsc2UK",
+   "src/ok.rs": "fn ok() {}\n"
+  }
+ },
+ {
+  "name": "maintainer-snapshot",
+  "checkers": [
+   "codebase-maintainer"
+  ],
+  "base": null,
+  "head": {
+   "src/a.rs": "fn a() {}\n<<<<<<< HEAD\nx\n>>>>>>> b\n",
+   "junk.swp": "x\n"
+  }
+ },
+ {
+  "name": "machine-path",
+  "checkers": [
+   "privacy-cleaner"
+  ],
+  "machine_roots": [
+   "/Users/synthetic",
+   "/home/synthetic",
+   "synthetic-host.local",
+   "synthetic-host"
+  ],
+  "base": {
+   "docs/guide.md": "see <workspace>/demo-app\n"
+  },
+  "head": {
+   "docs/guide.md": "run from /Users/synthetic/DevSpace/demo-app\n",
+   "docs/host.md": "runner: synthetic-host.local\nold home /home/synthetic\n",
+   "docs/ok.md": "path /Users/maintainer/project stays\n"
+  }
+ }
 ]

@@ -12,6 +12,7 @@ use crate::contract::{self, Contract};
 use crate::credential;
 use crate::evidence;
 use crate::fullservice;
+use crate::objection;
 use crate::sanitize::sanitize;
 use crate::util::sha256;
 use crate::{ranges, stage1};
@@ -1584,18 +1585,34 @@ fn review_gate(
         );
         return Ok(0);
     }
+    let repo_id = repo_identity(repo);
     let mut summaries = Vec::new();
     if let Some(stage1_contract) = &contract.stage1 {
         let opts = stage1::Opts {
             withheld_path: None,
+            machine_roots: None,
         };
-        let (ok, found) = stage1::audit_all(
+        let (ok, mut found) = stage1::audit_all(
             repo,
             &targets,
             &stage1_contract.rules,
             &opts,
             stage1_contract.surfaces,
         )?;
+        if !ok {
+            // audit_all stops at the first refusal; a ruling on that head
+            // must not excuse targets the sweep never reached — audit the
+            // rest so every refusal is either ruled on or reported.
+            for target in &targets[found.len()..] {
+                found.push(stage1::audit(
+                    repo,
+                    target,
+                    &stage1_contract.rules,
+                    &opts,
+                    stage1_contract.surfaces,
+                )?);
+            }
+        }
         let stage_label = stage1_contract.label.as_deref().unwrap_or("deterministic");
         for summary in &found {
             let state = if summary.refused.is_empty() {
@@ -1624,12 +1641,32 @@ fn review_gate(
         }
         summaries = found;
         if !ok {
-            return Err(stage1_contract.refusal.clone().unwrap_or_else(|| {
-                "The deterministic audit refused this operation; nothing was published".to_string()
-            }));
+            // A certified verdict ruling for a refused head accepts that
+            // target's deterministic outcome, so the audit continues: the
+            // sealed report still carries every hit and the gate names the
+            // ruling that waived them. One unruled refusal stops the run.
+            let unwaived = targets
+                .iter()
+                .zip(summaries.iter())
+                .filter(|(_, summary)| !summary.refused.is_empty())
+                .filter(|(target, _)| {
+                    !objection::verdict_waived(&contract.name, &repo_id, &target.head)
+                })
+                .count();
+            if unwaived == 0 {
+                println!(
+                    "{}: deterministic refusal waived by signed verdict ruling; \
+                     the audit continues",
+                    contract.title,
+                );
+            } else {
+                return Err(stage1_contract.refusal.clone().unwrap_or_else(|| {
+                    "The deterministic audit refused this operation; nothing was published"
+                        .to_string()
+                }));
+            }
         }
     }
-    let repo_id = repo_identity(repo);
     let reviewer = runtime_identity(settings, contract, runtime);
     let runs = settings.profile.join(format!("{}-runs", contract.name));
     for (index, target) in targets.iter().enumerate() {

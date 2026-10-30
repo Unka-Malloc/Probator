@@ -107,9 +107,11 @@ impl Summary {
 
 /// Machine-local inputs the builtins consult. The withheld-names list lives
 /// outside every repository: the rule is public, the names it withholds are
-/// not.
+/// not. `machine_roots` pins the local path/hostname roots the machine-path
+/// sweep refuses; `None` derives them from the calling machine.
 pub struct Opts {
     pub withheld_path: Option<PathBuf>,
+    pub machine_roots: Option<Vec<String>>,
 }
 
 // --------------------------------------------------------- shared evidence
@@ -521,6 +523,67 @@ fn default_withheld_path() -> PathBuf {
         .join("withheld-names.txt")
 }
 
+/// The local roots whose presence in published content exposes this machine:
+/// the caller's home directory, its basename under every platform spelling,
+/// the macOS per-user temp root, and the machine hostname in both forms.
+/// Each becomes a literal case-insensitive pattern; a basename under three
+/// characters is dropped rather than matched inside ordinary words. Tests
+/// pin the list through `Opts::machine_roots`.
+fn machine_roots(overrides: Option<&Vec<String>>) -> Vec<String> {
+    if let Some(roots) = overrides {
+        return roots.iter().map(|r| r.trim().to_string()).collect();
+    }
+    let mut roots = Vec::new();
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        let home = home.to_string_lossy().trim().to_string();
+        if home.len() > 3 {
+            roots.push(home.clone());
+            if let Some(base) = Path::new(&home).file_name() {
+                let base = base.to_string_lossy();
+                if base.len() >= 3 {
+                    roots.push(format!("/Users/{base}"));
+                    roots.push(format!("/home/{base}"));
+                    roots.push(format!("C:\\Users\\{base}"));
+                }
+            }
+        }
+    }
+    roots.push("/var/_folders/".to_string());
+    if let Some(host) = machine_hostname() {
+        if host.len() >= 3 {
+            roots.push(host.clone());
+            if let Some((short, _)) = host.split_once('.') {
+                if short.len() >= 3 {
+                    roots.push(short.to_string());
+                }
+            }
+        }
+    }
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+/// The machine's hostname: environment first, the `hostname` tool as the
+/// fallback. Any failure simply yields no hostname rule - a missing signal
+/// never errors the sweep.
+fn machine_hostname() -> Option<String> {
+    for var in ["HOSTNAME", "COMPUTERNAME"] {
+        if let Some(value) = std::env::var_os(var) {
+            let value = value.to_string_lossy().trim().to_string();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .filter(|host| !host.is_empty())
+}
+
 /// Every finding in the revision, as path/line/rule. Neither check ever
 /// returns the matched text: a refusal must be actionable without repeating
 /// the secret, and the developer can read their own line. `git grep -I`
@@ -543,8 +606,9 @@ fn default_withheld_path() -> PathBuf {
 /// they cost a rescan, never a wrong verdict.
 fn clean_audit(repo: &str, target: &Target, opts: &Opts) -> Result<(String, Vec<Hit>), String> {
     let names = withheld_names(opts.withheld_path.as_ref(), &origin_slug(repo));
+    let roots = machine_roots(opts.machine_roots.as_ref());
     let Some(cache) = shared_evidence_path() else {
-        return clean_audit_scan(repo, target, &names);
+        return clean_audit_scan(repo, target, &names, &roots);
     };
     let key = {
         let mut parts = format!(
@@ -554,6 +618,10 @@ fn clean_audit(repo: &str, target: &Target, opts: &Opts) -> Result<(String, Vec<
         );
         for name in &names {
             parts.push_str(name);
+            parts.push('\u{0}');
+        }
+        for root in &roots {
+            parts.push_str(root);
             parts.push('\u{0}');
         }
         format!("scan/{}", crate::util::sha256(&parts))
@@ -582,7 +650,7 @@ fn clean_audit(repo: &str, target: &Target, opts: &Opts) -> Result<(String, Vec<
             Ok((why, hits))
         }
         Evidence::Fill(fill) => {
-            let (why, hits) = clean_audit_scan(repo, target, &names)?;
+            let (why, hits) = clean_audit_scan(repo, target, &names, &roots)?;
             fill.store(json!({
                 "why": why,
                 "hits": hits.iter().map(Hit::to_json).collect::<Vec<_>>(),
@@ -597,21 +665,135 @@ fn clean_audit(repo: &str, target: &Target, opts: &Opts) -> Result<(String, Vec<
 /// mode keeps the list private, and the returned handle means the child
 /// reads the file this process created even if the path is later replaced.
 /// Retries cover a random-name collision with a sibling run.
-fn spec_file() -> Result<(std::path::PathBuf, std::fs::File), String> {
-    #[cfg(unix)]
+///
+/// A caller may pin scratch space by descriptor and export it as
+/// `TMPDIR=/dev/fd/N`: that spelling reaches this process but `/dev/fd/N/leaf`
+/// joins do not resolve on platforms without fd-relative path lookup
+/// (Darwin fdescfs), so a pinned parent is opened through `openat` on a
+/// duplicated share of the descriptor and unlinked through `unlinkat`. The
+/// returned [`SpecStage`] keeps that parent alive until cleanup runs.
+struct SpecStage {
+    parent: Option<std::os::fd::OwnedFd>,
+    name: std::ffi::OsString,
+    path: std::path::PathBuf,
+}
+
+impl SpecStage {
+    /// Remove the staged list through the same spelling that created it:
+    /// `unlinkat` under a pinned parent, `remove_file` under a path one.
+    fn unlink(&self) {
+        #[cfg(unix)]
+        if let Some(parent) = &self.parent {
+            use std::os::fd::AsRawFd as _;
+            use std::os::unix::ffi::OsStrExt as _;
+            let Ok(name) = std::ffi::CString::new(self.name.as_bytes()) else {
+                return;
+            };
+            unsafe {
+                libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), 0);
+            }
+            return;
+        }
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+#[cfg(unix)]
+fn spec_file() -> Result<(SpecStage, std::fs::File), String> {
+    use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+    use std::os::unix::ffi::OsStrExt as _;
     use std::os::unix::fs::OpenOptionsExt as _;
+
+    // A descriptor-spelled TMPDIR (`/dev/fd/N`) pins the parent by fd, so the
+    // leaf is created with openat; every other spelling keeps path ops.
+    let pinned_parent = std::env::temp_dir()
+        .to_str()
+        .and_then(|dir| dir.strip_prefix("/dev/fd/"))
+        .and_then(|fd| fd.parse::<i32>().ok())
+        .and_then(|fd| {
+            // Duplicate so the stage's cleanup owns a live descriptor even
+            // if the caller's own share closes first.
+            let dup = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+            (dup >= 0).then(|| unsafe { OwnedFd::from_raw_fd(dup) })
+        });
     for _ in 0..8 {
-        let path = std::env::temp_dir().join(format!(
+        let name = std::ffi::OsString::from(format!(
             "probator-oids-{}-{:08x}",
             std::process::id(),
             rand::random::<u32>()
         ));
+        if let Some(parent) = &pinned_parent {
+            let Ok(cname) = std::ffi::CString::new(name.as_bytes()) else {
+                continue;
+            };
+            let fd = unsafe {
+                libc::openat(
+                    parent.as_raw_fd(),
+                    cname.as_ptr(),
+                    libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW,
+                    0o600,
+                )
+            };
+            if fd >= 0 {
+                let file = unsafe { std::fs::File::from_raw_fd(fd) };
+                let stage = SpecStage {
+                    parent: pinned_parent,
+                    name,
+                    path: std::path::PathBuf::new(),
+                };
+                return Ok((stage, file));
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                continue;
+            }
+            return Err(format!("Git could not stage the batch list: {error}"));
+        }
+        let path = std::env::temp_dir().join(&name);
         let mut options = std::fs::OpenOptions::new();
         options.read(true).write(true).create_new(true);
-        #[cfg(unix)]
         options.mode(0o600);
         match options.open(&path) {
-            Ok(file) => return Ok((path, file)),
+            Ok(file) => {
+                let stage = SpecStage {
+                    parent: None,
+                    name,
+                    path,
+                };
+                return Ok((stage, file));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!("Git could not stage the batch list: {error}"));
+            }
+        }
+    }
+    Err("Git could not stage the batch list: name collision".into())
+}
+
+#[cfg(not(unix))]
+fn spec_file() -> Result<(SpecStage, std::fs::File), String> {
+    for _ in 0..8 {
+        let name = std::ffi::OsString::from(format!(
+            "probator-oids-{}-{:08x}",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+        let path = std::env::temp_dir().join(&name);
+        match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => {
+                let stage = SpecStage {
+                    parent: None,
+                    name,
+                    path,
+                };
+                return Ok((stage, file));
+            }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => {
                 return Err(format!("Git could not stage the batch list: {error}"));
@@ -636,7 +818,7 @@ fn batch_body_reader(
     Option<(
         std::process::Child,
         std::io::BufReader<std::process::ChildStdout>,
-        std::path::PathBuf,
+        SpecStage,
     )>,
     String,
 > {
@@ -663,7 +845,7 @@ fn batch_body_reader(
     let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
-            let _ = std::fs::remove_file(&list);
+            list.unlink();
             return Err(error);
         }
     };
@@ -782,7 +964,7 @@ fn for_each_blob_prefix(
         let _ = child.kill();
         let _ = child.wait();
     }
-    let _ = std::fs::remove_file(&list);
+    list.unlink();
     result
 }
 
@@ -790,6 +972,7 @@ fn clean_audit_scan(
     repo: &str,
     target: &Target,
     names: &[String],
+    roots: &[String],
 ) -> Result<(String, Vec<Hit>), String> {
     let mut patterns: Vec<(&str, Regex)> = Vec::new();
     for name in names.iter().filter(|n| !n.trim().is_empty()) {
@@ -797,6 +980,13 @@ fn clean_audit_scan(
             "withheld-name",
             Regex::new(&format!("(?i){}", name_pattern(name)))
                 .map_err(|e| format!("invalid withheld name pattern: {e}"))?,
+        ));
+    }
+    for root in roots.iter().filter(|r| !r.trim().is_empty()) {
+        patterns.push((
+            "machine-path",
+            Regex::new(&format!("(?i){}", regex::escape(root.trim())))
+                .map_err(|e| format!("invalid machine path pattern: {e}"))?,
         ));
     }
     for (rule, expression) in CREDENTIAL_RULES {
@@ -911,12 +1101,223 @@ fn clean_audit_scan(
     }
     let refused = if hits.iter().any(|hit| hit.rule == "withheld-name") {
         "withheld-name"
+    } else if hits.iter().any(|hit| hit.rule == "machine-path") {
+        "machine-path"
     } else if !hits.is_empty() {
         "credential-shape"
     } else {
         ""
     };
     Ok((refused.to_string(), hits))
+}
+
+// ---------------------------------------------------------------------------
+// commit-identity (Privacy Cleaner)
+// ---------------------------------------------------------------------------
+
+/// The catalogue mirrors cya's attribution policy in compact form: agent
+/// display names, dedicated addresses, and the local-part tokens that mark an
+/// agent behind a shared `users.noreply.github.com` mailbox. Kept as
+/// constants so the deterministic pass has no filesystem dependency.
+const AGENT_NAMES: &[&str] = &[
+    "claude code",
+    "codex",
+    "cursor agent",
+    "cursoragent",
+    "devin ai",
+    "commandcodebot",
+    "command code bot",
+    "github copilot",
+    "copilot-swe-agent",
+    "openhands",
+    "sweep-ai",
+    "codegen-sh",
+    "jules",
+    "aider",
+    "crush",
+    "gemini-code-assist",
+    "factory droid",
+    "amazon q",
+    "amazonq",
+    "windsurf",
+    "tabnine",
+    "codegeex",
+    "junie",
+    "kiro",
+    "hermes",
+    "trae",
+    "kimi",
+    "qwen",
+    "glm",
+    "lingma",
+];
+const AGENT_ADDRESSES: &[&str] = &[
+    "noreply@anthropic.com",
+    "cursoragent@cursor.com",
+    "noreply@commandcode.ai",
+    "crush@charm.land",
+    "aider@aider.chat",
+    "openhands@all-hands.dev",
+    "copilot@github.com",
+    "devin@cognition.ai",
+    "devin@cognition-labs.com",
+    "devin-ai-integration[bot]@users.noreply.github.com",
+    "noreply@trae.ai",
+    "noreply@z.ai",
+    "continue@continue.dev",
+    "cline@cline.ai",
+];
+const AGENT_NOREPLY_TOKENS: &[&str] = &[
+    "codex", "copilot", "devin", "cursor", "claude", "jules", "sweep-ai",
+    "codegen-sh", "openhands", "factory-droid", "factory_droid", "gemini", "kimi",
+    "qwen", "glm", "lingma", "aider", "commandcode", "amazon-q",
+];
+/// Tokens checked inside "Generated with ..." and trailer prose, where no
+/// structured address exists.
+const AGENT_PROSE_TOKENS: &[&str] = &[
+    "claude", "devin", "cursor", "codex", "commandcode", "command code",
+    "copilot", "aider", "openhands", "crush", "jules", "gemini", "kimi", "trae",
+    "windsurf", "qwen", "glm",
+];
+const IDENTITY_TRAILER_KEYS: &[&str] = &[
+    "co-authored-by",
+    "generated-by",
+    "assisted-by",
+    "claude-session",
+    "generated with",
+    "co-written-by",
+];
+const MISCONFIGURED_NAMES: &[&str] = &["user.email", "user.name", "developer", "unknown"];
+const LOCAL_EMAIL_SUFFIXES: &[&str] = &[".local", ".lan", ".internal", ".corp", ".localhost"];
+
+/// Whether an attribution position names an agent rather than a person: a
+/// bot-shaped name, a known agent name or address, or an agent token in the
+/// local part of a shared noreply mailbox.
+fn identity_is_agent(name: &str, email: &str) -> bool {
+    let name = name.trim().to_lowercase();
+    let email = email.trim().to_lowercase();
+    let local = email.split('@').next().unwrap_or("");
+    name.contains("[bot]")
+        || name.contains("agent")
+        || name.contains("ai draft")
+        || AGENT_NAMES.iter().any(|a| name == *a)
+        || AGENT_ADDRESSES.iter().any(|a| email == *a)
+        || (email.ends_with("@users.noreply.github.com")
+            && AGENT_NOREPLY_TOKENS.iter().any(|t| local.contains(t)))
+}
+
+/// Whether an email domain names a machine rather than a routable mailbox:
+/// an mDNS or internal suffix, `localhost`, or this machine's own hostname.
+fn email_is_machine(email: &str, machine: &str) -> bool {
+    let Some((_, domain)) = email.rsplit_once('@') else {
+        return false;
+    };
+    let domain = domain.trim_end_matches('>').to_lowercase();
+    domain == "localhost"
+        || LOCAL_EMAIL_SUFFIXES.iter().any(|s| domain.ends_with(s))
+        || (!machine.is_empty() && domain == machine.to_lowercase())
+}
+
+/// Every commit in the audited range, checked for three facts the published
+/// record must not carry: an author or committer that names an agent, a
+/// mailbox hosted on a machine or internal domain, or a name left at a
+/// gitconfig placeholder; and attribution trailers in the message that do
+/// the same. `git log` emits one NUL-free record per commit - \x1f between
+/// fields, \x1e between commits - so trailers are read as structured lines,
+/// not prose.
+fn identity_audit(repo: &str, target: &Target) -> Result<Vec<Hit>, String> {
+    let range = target
+        .base
+        .as_deref()
+        .filter(|b| !b.is_empty())
+        .map(|base| format!("{base}..{}", target.head))
+        .unwrap_or_else(|| target.head.clone());
+    let output = git(
+        repo,
+        &[
+            "log",
+            "--format=%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B%x1e",
+            &range,
+        ],
+    )?;
+    let machine = machine_hostname().unwrap_or_default();
+    let mut hits = Vec::new();
+    for record in String::from_utf8_lossy(&output.stdout).split('\x1e') {
+        let mut fields = record.splitn(6, '\x1f');
+        let (Some(sha), Some(an), Some(ae), Some(cn), Some(ce), Some(body)) = (
+            fields.next(),
+            fields.next(),
+            fields.next(),
+            fields.next(),
+            fields.next(),
+            fields.next(),
+        ) else {
+            continue;
+        };
+        let sha = sha.trim();
+        if sha.is_empty() {
+            continue;
+        }
+        let path = format!("commit {}", &sha[..sha.len().min(12)]);
+        for (line, name, email) in [(1u64, an, ae), (2, cn, ce)] {
+            if identity_is_agent(name, email) {
+                hits.push(Hit {
+                    path: path.clone(),
+                    line,
+                    rule: "identity/agent-attribution".into(),
+                    remedy: None,
+                });
+            }
+            if email_is_machine(email, &machine) {
+                hits.push(Hit {
+                    path: path.clone(),
+                    line,
+                    rule: "identity/local-hostname".into(),
+                    remedy: None,
+                });
+            }
+            if MISCONFIGURED_NAMES.contains(&name.trim().to_lowercase().as_str()) {
+                hits.push(Hit {
+                    path: path.clone(),
+                    line,
+                    rule: "identity/misconfigured-name".into(),
+                    remedy: None,
+                });
+            }
+        }
+        for (number, raw) in body.lines().enumerate() {
+            if raw.starts_with(char::is_whitespace) {
+                continue;
+            }
+            let lower = raw.to_lowercase();
+            let Some(key) = IDENTITY_TRAILER_KEYS
+                .iter()
+                .find(|key| lower.starts_with(**key))
+            else {
+                continue;
+            };
+            let value = lower[key.len()..].trim_start_matches(':').trim().to_string();
+            let (vname, vemail) = match value.rsplit_once('<') {
+                Some((n, rest)) => (n.trim().to_string(), rest.trim_end_matches('>').to_string()),
+                None => (value.clone(), String::new()),
+            };
+            if identity_is_agent(&vname, &vemail)
+                || AGENT_PROSE_TOKENS.iter().any(|t| value.contains(t))
+                || value.contains("[bot]")
+            {
+                hits.push(Hit {
+                    path: path.clone(),
+                    line: number as u64 + 3,
+                    rule: "identity/agent-attribution".into(),
+                    remedy: None,
+                });
+            }
+        }
+        if hits.len() >= MAX_HITS {
+            break;
+        }
+    }
+    Ok(hits)
 }
 
 // ---------------------------------------------------------------------------
@@ -1142,8 +1543,10 @@ static MERGE_ARTIFACT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\.(orig|rej)$|\.(BACKUP|BASE|LOCAL|REMOTE)\.[0-9a-f]{7,}").unwrap()
 });
 static OS_JUNK: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(^|/)(\.DS_Store|Thumbs\.db|desktop\.ini)$|(^|/)\._[^/]+$|\.(swp|swo)$|~$")
-        .unwrap()
+    Regex::new(
+        r"(?i)(^|/)(\.DS_Store|Thumbs\.db|desktop\.ini)$|(^|/)\._[^/]+$|\.(swp|swo)$|~$|(^|/)\.idea/|(^|/)\.history/|(^|/)\.workspace-root$|\.code-workspace$|(^|/)[^/]*\.local$",
+    )
+    .unwrap()
 });
 static SIDE_MARKERS: LazyLock<BytesRegex> =
     LazyLock::new(|| BytesRegex::new(r"^(<{7}|>{7})( .*)?\r?$").unwrap());
@@ -1849,7 +2252,7 @@ fn batch_check(repo: &str, specs: &[&str], format: &str) -> Result<String, Strin
         .output()
         .map_err(|e| format!("Git could not read the review snapshot: {e}"))
     })();
-    let _ = std::fs::remove_file(&list);
+    list.unlink();
     let output = output?;
     if !output.status.success() {
         return Err(git_status_error(
@@ -1904,7 +2307,7 @@ fn diff_attrs(
     let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
-            let _ = std::fs::remove_file(&list);
+            list.unlink();
             return Err(error);
         }
     };
@@ -1955,7 +2358,7 @@ fn diff_attrs(
         let _ = err.read_to_string(&mut stderr);
     }
     let status = child.wait();
-    let _ = std::fs::remove_file(&list);
+    list.unlink();
     if let Some(error) = parse_error {
         return Err(error);
     }
@@ -3006,6 +3409,16 @@ pub fn audit(
                         hits.extend(regressions);
                     }
                 }
+                "commit-identity" => {
+                    let found = identity_audit(repo, target)?;
+                    if !found.is_empty() {
+                        status = "refused".into();
+                        if refused.is_empty() {
+                            refused = "commit-identity".to_string();
+                        }
+                        hits.extend(found);
+                    }
+                }
                 other => {
                     return Err(format!(
                         "stage1 rule {:?}: unknown builtin {other:?}",
@@ -3163,6 +3576,7 @@ mod tests {
             &target,
             &super::Opts {
                 withheld_path: None,
+                machine_roots: None,
             },
         )
         .unwrap();
@@ -3324,8 +3738,17 @@ mod tests {
                 .map(|lines| lines.iter().map(case_str).collect())
                 .unwrap_or_default();
             std::fs::write(&withheld, lines.join("\n") + "\n").unwrap();
+            // Machine roots are pinned per case the same way: the host's own
+            // home directory and hostname must not decide a golden verdict,
+            // so an absent key means an empty list, not derivation.
             let opts = Opts {
                 withheld_path: Some(withheld),
+                machine_roots: Some(
+                    case.get("machine_roots")
+                        .and_then(Value::as_array)
+                        .map(|roots| roots.iter().map(case_str).collect())
+                        .unwrap_or_default(),
+                ),
             };
             for checker in case["checkers"].as_array().unwrap() {
                 let checker = checker.as_str().unwrap();
@@ -3404,6 +3827,7 @@ mod tests {
         let target = range_target(base, head);
         let opts = Opts {
             withheld_path: None,
+            machine_roots: Some(Vec::new()),
         };
         let (_, hits) = clean_audit(root.to_str().unwrap(), &target, &opts).unwrap();
         assert!(
@@ -3412,6 +3836,168 @@ mod tests {
             "the middle commit's blob is scanned: {}",
             hits.iter()
                 .map(|h| format!("{}:{}", h.path, h.rule))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    /// A machine path committed inside the range and rewritten at the head
+    /// is still published history: the machine-path rule rides the same
+    /// range-blob pass as the credential sweep.
+    #[test]
+    fn a_machine_path_removed_inside_the_range_is_still_scanned() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-range-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join("notes.md"), "built at <workspace>\n").unwrap();
+        let base = commit_all(root, "base");
+        // The path lives on a commit inside the range; the head rewrites it,
+        // so only the range-blob pass can still see it.
+        std::fs::write(root.join("notes.md"), "built at /home/builder/ws\n").unwrap();
+        commit_all(root, "middle");
+        std::fs::write(root.join("notes.md"), "built at <workspace>\n").unwrap();
+        let head = commit_all(root, "head");
+
+        let target = range_target(base, head);
+        let opts = Opts {
+            withheld_path: None,
+            machine_roots: Some(vec!["/home/builder".to_string()]),
+        };
+        let (refused, hits) = clean_audit(root.to_str().unwrap(), &target, &opts).unwrap();
+        assert_eq!(refused, "machine-path");
+        assert!(
+            hits.iter()
+                .any(|h| h.rule == "machine-path" && h.path.contains("range blob")),
+            "the base blob is scanned: {}",
+            hits.iter()
+                .map(|h| format!("{}:{}", h.path, h.rule))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    /// A commit lands with whichever author and message the caller pins:
+    /// attribution findings come from git metadata, so the fixture must be
+    /// able to write identities the pinned helper cannot.
+    fn commit_as(
+        root: &Path,
+        message: &str,
+        author: (&str, &str),
+        committer: (&str, &str),
+    ) -> String {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["add", "-A"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["commit", "-qm", message])
+            .env("GIT_AUTHOR_NAME", author.0)
+            .env("GIT_AUTHOR_EMAIL", author.1)
+            .env("GIT_COMMITTER_NAME", committer.0)
+            .env("GIT_COMMITTER_EMAIL", committer.1)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        git(root, &["rev-parse", "HEAD"])
+    }
+
+    /// The published record must not carry an agent author, a machine-hosted
+    /// mailbox, a gitconfig placeholder name, or an agent attribution
+    /// trailer - each in a separate commit so every position is exercised.
+    #[test]
+    fn dirty_commit_identities_are_refused() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-ident-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+
+        std::fs::write(root.join("a.txt"), "a\n").unwrap();
+        let base = commit_all(root, "base");
+        std::fs::write(root.join("b.txt"), "b\n").unwrap();
+        commit_as(
+            root,
+            "agent author",
+            ("devin-ai-integration[bot]", "devin-ai-integration[bot]@users.noreply.github.com"),
+            ("Synthetic", "synthetic@example.invalid"),
+        );
+        std::fs::write(root.join("c.txt"), "c\n").unwrap();
+        commit_as(
+            root,
+            "local mailbox",
+            ("t", "t@builder-machine.local"),
+            ("Synthetic", "synthetic@example.invalid"),
+        );
+        std::fs::write(root.join("d.txt"), "d\n").unwrap();
+        commit_as(
+            root,
+            "misconfigured",
+            ("user.email", "whoever@example.invalid"),
+            ("Synthetic", "synthetic@example.invalid"),
+        );
+        std::fs::write(root.join("e.txt"), "e\n").unwrap();
+        commit_as(
+            root,
+            "work\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+            ("Synthetic", "synthetic@example.invalid"),
+            ("Synthetic", "synthetic@example.invalid"),
+        );
+        let head = git(root, &["rev-parse", "HEAD"]);
+
+        let target = range_target(base, head);
+        let hits = super::identity_audit(root.to_str().unwrap(), &target).unwrap();
+        let rules: Vec<&str> = hits.iter().map(|h| h.rule.as_str()).collect();
+        assert!(rules.contains(&"identity/agent-attribution"), "{rules:?}");
+        assert!(rules.contains(&"identity/local-hostname"), "{rules:?}");
+        assert!(rules.contains(&"identity/misconfigured-name"), "{rules:?}");
+        assert!(
+            hits.iter()
+                .filter(|h| h.rule == "identity/agent-attribution")
+                .count()
+                >= 2,
+            "author and trailer both count: {rules:?}"
+        );
+    }
+
+    /// A clean range produces no identity findings - the pinned fixture
+    /// identity is the baseline every other test already relies on.
+    #[test]
+    fn clean_commit_identities_pass() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-ident-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join("a.txt"), "a\n").unwrap();
+        let base = commit_all(root, "base");
+        std::fs::write(root.join("b.txt"), "b\n").unwrap();
+        let head = commit_all(root, "head");
+        let target = range_target(base, head);
+        let hits = super::identity_audit(root.to_str().unwrap(), &target).unwrap();
+        assert!(
+            hits.is_empty(),
+            "{}",
+            hits.iter()
+                .map(|h| format!("{}:{} {}", h.path, h.line, h.rule))
                 .collect::<Vec<_>>()
                 .join(", ")
         );
