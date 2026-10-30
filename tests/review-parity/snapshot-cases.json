@@ -10,7 +10,7 @@
         "assets/logo.png": "PNGfake\n",
         ".env": "SECRET=x\n",
         "node_modules/x/index.js": "x\n",
-        "src/secrets.py": "API_TOKEN = \"tok-1234567890abcdef\"\n",
+        "src/secrets.py": "b64:QVBJX1RPS0VOID0gInRvay0xMjM0NTY3ODkwYWJjZGVmIgo=",
         "src/lib.min.js": "min\n",
         "wrangler.toml": "name = \"app\"\n"
       }

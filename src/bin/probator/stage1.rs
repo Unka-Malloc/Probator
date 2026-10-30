@@ -103,7 +103,22 @@ impl Summary {
         }
         summary
     }
+
+    /// Whether the outcome carries a finding no operator ruling may waive.
+    /// The fix for an unappealable hit is always mechanical - mint the value
+    /// at run time - so the signed-ruling channel is not consulted for it at
+    /// all: the refusal stands however the ledger reads.
+    pub fn unappealable(&self) -> bool {
+        self.hits
+            .iter()
+            .any(|hit| UNAPPEALABLE_RULES.contains(&hit.rule.as_str()))
+    }
 }
+
+/// The refusal no signed ruling can commute. Rules are listed here only
+/// when every finding they emit has a mechanical remediation the operator
+/// cannot reasonably adjudicate away.
+pub const UNAPPEALABLE_RULES: [&str; 1] = ["test-key-default"];
 
 /// Machine-local inputs the builtins consult. The withheld-names list lives
 /// outside every repository: the rule is public, the names it withholds are
@@ -1168,16 +1183,46 @@ const AGENT_ADDRESSES: &[&str] = &[
     "cline@cline.ai",
 ];
 const AGENT_NOREPLY_TOKENS: &[&str] = &[
-    "codex", "copilot", "devin", "cursor", "claude", "jules", "sweep-ai",
-    "codegen-sh", "openhands", "factory-droid", "factory_droid", "gemini", "kimi",
-    "qwen", "glm", "lingma", "aider", "commandcode", "amazon-q",
+    "codex",
+    "copilot",
+    "devin",
+    "cursor",
+    "claude",
+    "jules",
+    "sweep-ai",
+    "codegen-sh",
+    "openhands",
+    "factory-droid",
+    "factory_droid",
+    "gemini",
+    "kimi",
+    "qwen",
+    "glm",
+    "lingma",
+    "aider",
+    "commandcode",
+    "amazon-q",
 ];
 /// Tokens checked inside "Generated with ..." and trailer prose, where no
 /// structured address exists.
 const AGENT_PROSE_TOKENS: &[&str] = &[
-    "claude", "devin", "cursor", "codex", "commandcode", "command code",
-    "copilot", "aider", "openhands", "crush", "jules", "gemini", "kimi", "trae",
-    "windsurf", "qwen", "glm",
+    "claude",
+    "devin",
+    "cursor",
+    "codex",
+    "commandcode",
+    "command code",
+    "copilot",
+    "aider",
+    "openhands",
+    "crush",
+    "jules",
+    "gemini",
+    "kimi",
+    "trae",
+    "windsurf",
+    "qwen",
+    "glm",
 ];
 const IDENTITY_TRAILER_KEYS: &[&str] = &[
     "co-authored-by",
@@ -1296,7 +1341,10 @@ fn identity_audit(repo: &str, target: &Target) -> Result<Vec<Hit>, String> {
             else {
                 continue;
             };
-            let value = lower[key.len()..].trim_start_matches(':').trim().to_string();
+            let value = lower[key.len()..]
+                .trim_start_matches(':')
+                .trim()
+                .to_string();
             let (vname, vemail) = match value.rsplit_once('<') {
                 Some((n, rest)) => (n.trim().to_string(), rest.trim_end_matches('>').to_string()),
                 None => (value.clone(), String::new()),
@@ -1315,6 +1363,406 @@ fn identity_audit(repo: &str, target: &Target) -> Result<Vec<Hit>, String> {
         }
         if hits.len() >= MAX_HITS {
             break;
+        }
+    }
+    Ok(hits)
+}
+
+// ---------------------------------------------------------------------------
+// test-key-generation (Privacy Cleaner)
+// ---------------------------------------------------------------------------
+
+/// A binding's left side - bare, dotted or quoted - capturing the identifier
+/// for the name check.
+const KEY_NAME: &str = r#"["']?([A-Za-z_][A-Za-z0-9_.-]*)["']?"#;
+
+/// A quoted literal of eight or more characters - string, byte-string, raw
+/// or backtick form. Shorter literals stay below the shape a key needs.
+const KEY_LITERAL: &str = r#"[br#]*(?:"[^"\n]{8,}"|'[^'\n]{8,}'|`[^`\n]{8,}`)"#;
+
+/// `name = "literal"`, `name: &str = "literal"`, `name => "literal"`, and
+/// the same with a call or collection in value position (`= Some("…")`,
+/// `= vec!["…", "…"]`, `= derive("seed")`): whatever produces the value
+/// from text written into the file counts as a built-in default.
+static TEST_KEY_BIND: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        "{KEY_NAME}\\s*(?::\\s*[^=\\n\"']{{0,40}})?(?:=|:=|=>)\\s*(?:{KEY_LITERAL}|\\w+(?:::\\w+)*\\s*\\([^\\n]{{0,80}}?{KEY_LITERAL}|\\w+(?:::\\w+)*!\\s*\\[[^\\n]{{0,160}}?{KEY_LITERAL}|[\\[(]\\s*{KEY_LITERAL})"
+    ))
+    .expect("static test-key binding pattern")
+});
+
+/// `"api_key": "…"` / `api_key: "…"`: the JSON/YAML field form. The name
+/// carries no dots - a `:`-separated pair whose left side is dotted
+/// (`"src/keys.pem.txt"`, `"app/secrets.py"`) is a path record, not a key
+/// binding.
+static TEST_KEY_FIELD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        "[\"']?([A-Za-z_][A-Za-z0-9_-]*)[\"']?\\s*:\\s*{KEY_LITERAL}"
+    ))
+    .expect("static test-key field pattern")
+});
+
+/// `name = … || "default"`, `?? "default"`, `.unwrap_or("d")`,
+/// `.or_else(|| "d")`: a literal fallback on the same line as the binding is
+/// the env-read spelling of a built-in default.
+static TEST_KEY_FALLBACK: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        "{KEY_NAME}\\s*(?:=|:=|:|=>)[^\\n]{{0,80}}?(?:unwrap_or(?:_else)?|or_else|or)\\s*\\(\\s*\\|*\\s*{KEY_LITERAL}|{KEY_NAME}\\s*(?:=|:=|:|=>)[^\\n]{{0,80}}?(?:\\|\\||\\?\\?)\\s*{KEY_LITERAL}"
+    ))
+    .expect("static test-key fallback pattern")
+});
+
+/// `${KEY:-default}` and `${KEY:=default}` in shell test scripts.
+static TEST_KEY_SHELL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\$\{([A-Za-z_][A-Za-z0-9_]*)[:?=-]+[^}\n"'\s]{8,}\}"#)
+        .expect("static test-key shell-default pattern")
+});
+
+/// `const KEY: [u8; N] = [0x…, 0x…, …]` and the `[0; N]` repeat form: a byte
+/// literal is still a literal.
+static TEST_KEY_BYTES: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(
+        "{KEY_NAME}\\s*(?::\\s*[^=\\n\"']{{0,40}})?=\\s*\\[\\s*(?:0x[0-9a-fA-F]{{1,2}}|[0-9]{{1,3}})\\s*(?:,\\s*(?:0x[0-9a-fA-F]{{1,2}}|[0-9]{{1,3}})|;\\s*[0-9]{{1,4}}\\s*\\])"
+    ))
+    .expect("static test-key byte-array pattern")
+});
+
+/// `#[cfg(test)]` opens Rust's inline test module; `cfg(not(test))` is the
+/// inverse and stays production context. One level of `all`/`any` grouping
+/// is recognized.
+static RS_TEST_MODULE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"#\[\s*cfg\s*\([^]]*\btest\b"#).expect("cfg(test) pattern"));
+
+fn opens_test_module(line: &str) -> bool {
+    // The attribute only opens context where it leads the line: inside a
+    // comment it is prose about the attribute, and inside an expression
+    // (`format!("#[cfg(test)]…")`, code-generating strings) it is data.
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with('#') {
+        return false;
+    }
+    RS_TEST_MODULE.is_match(line) && !line.contains("not(test") && !line.contains("not (test")
+}
+
+/// Words that make an identifier key material: matched at a separator or a
+/// camel/digit boundary, never mid-word (`monkey`, `tokenizer`, `author`
+/// stay out). `sk` is the canonical secret-key abbreviation.
+const KEY_WORDS: &[&str] = &[
+    "key",
+    "secret",
+    "token",
+    "password",
+    "passwd",
+    "passphrase",
+    "pass",
+    "pwd",
+    "credential",
+    "cred",
+    "apikey",
+    "seed",
+    "salt",
+    "nonce",
+    "hmac",
+    "pin",
+    "bearer",
+    "auth",
+    "jwt",
+    "sk",
+];
+
+/// A trailing metadata word demotes the identifier: `key_id`, `secret_name`
+/// and `password_hash` name a reference or a derivative, not the value.
+const META_TAIL: &[&str] = &[
+    "name",
+    "field",
+    "env",
+    "var",
+    "attr",
+    "column",
+    "arg",
+    "param",
+    "header",
+    "label",
+    "path",
+    "file",
+    "dir",
+    "id",
+    "type",
+    "kind",
+    "format",
+    "alg",
+    "algorithm",
+    "len",
+    "length",
+    "size",
+    "count",
+    "hash",
+    "digest",
+    "checksum",
+    "fingerprint",
+    "encoding",
+];
+
+/// Concatenated spellings the boundary splitter cannot see (`APIKEY`,
+/// `clientsecret`). Only whole-name matches count.
+const GLUED_NAMES: &[&str] = &[
+    "apikey",
+    "secretkey",
+    "privatekey",
+    "accesskey",
+    "masterkey",
+    "sessionkey",
+    "signingkey",
+    "encryptionkey",
+    "hmackey",
+    "sshkey",
+    "gpgkey",
+    "pgpkey",
+    "clientsecret",
+    "accesstoken",
+    "authtoken",
+    "refreshtoken",
+    "bearertoken",
+    "sharedkey",
+    "licensekey",
+];
+
+/// Whether an identifier names key material. Word parts split on
+/// separators, camelCase and letter/digit boundaries; a `public` part vetoes
+/// (`public_key` is not a secret), and a plural part counts as its singular.
+fn is_secret_name(name: &str) -> bool {
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut prev: Option<char> = None;
+    for ch in name.chars() {
+        if !ch.is_alphanumeric() {
+            if !current.is_empty() {
+                parts.push(std::mem::take(&mut current));
+            }
+            prev = None;
+            continue;
+        }
+        let boundary = prev.is_some_and(|p| {
+            (p.is_lowercase() && ch.is_uppercase()) || (p.is_ascii_digit() != ch.is_ascii_digit())
+        });
+        if boundary {
+            parts.push(std::mem::take(&mut current));
+        }
+        current.push(ch);
+        prev = Some(ch);
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    let parts: Vec<String> = parts.iter().map(|part| part.to_lowercase()).collect();
+    if parts.iter().any(|part| part == "public" || part == "pub") {
+        return false;
+    }
+    if parts
+        .last()
+        .is_some_and(|last| META_TAIL.contains(&last.as_str()))
+    {
+        return false;
+    }
+    if parts.iter().any(|part| {
+        KEY_WORDS.contains(&part.as_str())
+            || (part.len() > 3
+                && part.ends_with('s')
+                && KEY_WORDS.contains(&&part[..part.len() - 1]))
+    }) {
+        return true;
+    }
+    GLUED_NAMES.contains(&parts.concat().as_str())
+}
+
+/// One line in test context: whether it binds key material to a written
+/// value. The name check runs per match - a line carrying `key_name` and
+/// `api_secret` alike answers for the secret one.
+fn test_key_line(line: &str) -> bool {
+    [
+        &*TEST_KEY_BIND,
+        &*TEST_KEY_FIELD,
+        &*TEST_KEY_FALLBACK,
+        &*TEST_KEY_SHELL,
+        &*TEST_KEY_BYTES,
+    ]
+    .iter()
+    .any(|pattern| {
+        pattern.captures_iter(line).any(|captures| {
+            // Alternating shapes put the name in different capture slots;
+            // whichever group participated is the identifier to judge.
+            captures
+                .iter()
+                .flatten()
+                .skip(1)
+                .any(|matched| is_secret_name(matched.as_str()))
+        })
+    })
+}
+
+/// Directory segments that mark a path as test material, separators
+/// removed (`__tests__` and `test-data` both normalize in).
+const TEST_DIRS: &[&str] = &[
+    "test",
+    "tests",
+    "testing",
+    "testdata",
+    "testfixtures",
+    "fixture",
+    "fixtures",
+    "e2e",
+    "bench",
+    "benches",
+    "fuzz",
+    "fuzzing",
+    "unittests",
+    "integrationtests",
+];
+
+/// Filename conventions: `test_*.py`, `*_test.*`, `*-test.*`, `*.test.*`,
+/// `*_spec.*`, `*.spec.*`, `conftest.*`, and the camel forms `TestFoo`,
+/// `FooTest`, `FooTests`, `FooSpec`, `FooIT` (Java/maven). The camel checks
+/// are case-sensitive: `audit.rs` and `contest.py` are not test files.
+fn is_test_file_name(file: &str) -> bool {
+    let lower = file.to_lowercase();
+    let stem = file.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(file);
+    let lower_stem = stem.to_lowercase();
+    lower_stem == "conftest"
+        || lower_stem == "test"
+        || lower_stem == "tests"
+        || lower_stem.starts_with("test_")
+        || lower_stem.starts_with("test-")
+        || lower_stem.ends_with("_test")
+        || lower_stem.ends_with("-test")
+        || lower_stem.ends_with("_spec")
+        || lower_stem.ends_with("-spec")
+        || lower.contains(".test.")
+        || lower.contains(".spec.")
+        || stem.starts_with("Test")
+        || stem.ends_with("Test")
+        || stem.ends_with("Tests")
+        || stem.ends_with("Spec")
+        || stem.ends_with("IT")
+}
+
+/// A path is test material when any directory segment normalizes to a test
+/// directory, or the filename itself declares a test.
+fn is_test_path(path: &str) -> bool {
+    let mut segments = path.rsplit('/');
+    let file = segments.next().unwrap_or("");
+    for segment in segments {
+        let normalized: String = segment
+            .chars()
+            .filter(|ch| ch.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect();
+        if TEST_DIRS.contains(&normalized.as_str()) {
+            return true;
+        }
+    }
+    is_test_file_name(file)
+}
+
+/// One test-context line check over a blob: `.rs` sources join the context
+/// at their `#[cfg(test)]` module, every other file follows its path alone.
+/// `path` classifies the context; `label` is what a hit reports.
+fn scan_test_blob(path: &str, label: &str, blob: &[u8], hits: &mut Vec<Hit>) -> bool {
+    if is_binary(blob, 8000) {
+        return true;
+    }
+    let rust = path.ends_with(".rs");
+    let mut test_context = is_test_path(path);
+    for (number, line) in String::from_utf8_lossy(blob).lines().enumerate() {
+        if !test_context {
+            if rust && opens_test_module(line) {
+                test_context = true;
+            }
+            continue;
+        }
+        if !test_key_line(line) {
+            continue;
+        }
+        hits.push(Hit {
+            path: label.to_string(),
+            line: number as u64 + 1,
+            rule: "test-key-default".to_string(),
+            remedy: Some("mint it in code; test keys are generated at run time, never defaulted"),
+        });
+        if hits.len() >= MAX_HITS {
+            return false;
+        }
+    }
+    true
+}
+
+/// The test-key sweep, one coupled pass: the head tree's test files plus
+/// every test blob the range introduces. Keys a test uses are minted at run
+/// time; a literal default written into the revision is refused outright and
+/// the hit's rule keeps it out of every waiver.
+fn test_keys_audit(repo: &str, target: &Target) -> Result<Vec<Hit>, String> {
+    let mut hits = Vec::new();
+    let mut scanned: std::collections::HashSet<String> = Default::default();
+    let mut files: Vec<(String, String)> = Vec::new();
+    for (path, mode, oid) in ls_tree_entries(repo, &target.head)? {
+        if mode != "100644" && mode != "100755" {
+            continue;
+        }
+        if !is_test_path(&path) && !path.ends_with(".rs") {
+            continue;
+        }
+        scanned.insert(oid.clone());
+        files.push((path, oid));
+    }
+    let oids: Vec<String> = files.iter().map(|(_, oid)| oid.clone()).collect();
+    for_each_blob(repo, &oids, |index, blob| {
+        let path = &files[index].0;
+        Ok(scan_test_blob(path, path, blob, &mut hits))
+    })?;
+    // The history pass, same contract as the credential sweep: a test key
+    // committed inside the range and deleted before the head is still
+    // published history. Only named blobs can carry a path classification;
+    // a `rev-list` object without a path gets no verdict either way.
+    {
+        let range = target
+            .base
+            .as_deref()
+            .filter(|b| !b.is_empty())
+            .map(|base| format!("{base}..{}", target.head))
+            .unwrap_or_else(|| target.head.clone());
+        let objects = git(repo, &["rev-list", "--objects", &range])?;
+        let mut blobs: Vec<(String, String)> = Vec::new();
+        for line in String::from_utf8_lossy(&objects.stdout).lines() {
+            let mut parts = line.splitn(2, ' ');
+            let Some(oid) = parts.next() else { continue };
+            let path = parts.next().unwrap_or("");
+            if oid.is_empty()
+                || path.is_empty()
+                || scanned.contains(oid)
+                || (!is_test_path(path) && !path.ends_with(".rs"))
+            {
+                continue;
+            }
+            blobs.push((oid.to_string(), path.to_string()));
+        }
+        if !blobs.is_empty() {
+            let specs: Vec<&str> = blobs.iter().map(|(oid, _)| oid.as_str()).collect();
+            let checked = batch_check(repo, &specs, "%(objecttype)")?;
+            let rows: Vec<&str> = checked.lines().collect();
+            if rows.len() != blobs.len() {
+                return Err("Git could not type the review blobs: batch reply lost rows".into());
+            }
+            let objects: Vec<(String, String)> = blobs
+                .into_iter()
+                .zip(rows)
+                .filter(|(_, row)| row.ends_with("blob"))
+                .map(|((oid, path), _)| (oid, path))
+                .collect();
+            let specs: Vec<String> = objects.iter().map(|(oid, _)| oid.clone()).collect();
+            for_each_blob(repo, &specs, |index, blob| {
+                let (oid, path) = &objects[index];
+                let label = format!("{path} (range blob {oid})");
+                Ok(scan_test_blob(path, &label, blob, &mut hits))
+            })?;
         }
     }
     Ok(hits)
@@ -3419,6 +3867,16 @@ pub fn audit(
                         hits.extend(found);
                     }
                 }
+                "test-key-generation" => {
+                    let found = test_keys_audit(repo, target)?;
+                    if !found.is_empty() {
+                        status = "refused".into();
+                        if refused.is_empty() {
+                            refused = "test-key-default".to_string();
+                        }
+                        hits.extend(found);
+                    }
+                }
                 other => {
                     return Err(format!(
                         "stage1 rule {:?}: unknown builtin {other:?}",
@@ -3463,9 +3921,10 @@ pub fn audit_all(
 #[cfg(test)]
 mod tests {
     use super::{
-        Hit, attr_floor_met, checklist_audit, clean_audit, dep_closure, dep_key, deps_map,
-        hygiene_audit, in_scope, is_instruction_channel, is_interface_surface, marker_lines,
-        name_pattern, outgoing_paths, range_diff, regex_hits,
+        Hit, Summary, attr_floor_met, checklist_audit, clean_audit, dep_closure, dep_key, deps_map,
+        hygiene_audit, in_scope, is_instruction_channel, is_interface_surface, is_secret_name,
+        is_test_path, marker_lines, name_pattern, outgoing_paths, range_diff, regex_hits,
+        test_key_line, test_keys_audit,
     };
     use crate::contract::Rule;
     use base64::Engine as _;
@@ -3654,14 +4113,7 @@ mod tests {
     /// under test. The corpus stays reviewable while this repository's own
     /// tree never stores the shape as text.
     fn case_str(value: &Value) -> String {
-        let raw = value.as_str().unwrap();
-        let Some(encoded) = raw.strip_prefix("b64:") else {
-            return raw.to_string();
-        };
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .expect("fixture value marked b64: must decode");
-        String::from_utf8(bytes).expect("fixture value must be UTF-8")
+        crate::util::b64_decode(value.as_str().unwrap())
     }
 
     fn apply(root: &Path, files: &serde_json::Map<String, Value>) {
@@ -3882,6 +4334,240 @@ mod tests {
         );
     }
 
+    // -- test-key-generation -------------------------------------------------
+
+    /// The sweep only wakes inside test material, and only an identifier
+    /// carrying a key word counts as key material.
+    #[test]
+    fn test_paths_and_key_names_are_classified() {
+        for path in [
+            "tests/test_keys.py",
+            "src/test/vectors.json",
+            "pkg/foo_test.go",
+            "web/app.test.ts",
+            "x/y/__tests__/z.js",
+            "fixtures/keys.json",
+            "conftest.py",
+            "src/tests.rs",
+            "TestMain.java",
+            "FooTest.java",
+        ] {
+            assert!(is_test_path(path), "{path} must classify as test material");
+        }
+        for path in [
+            "src/main.rs",
+            "src/audit.py",
+            "docs/latest/spec.md",
+            "lib/content.ts",
+            "scripts/contest.sh",
+            "src/secrets.py",
+            "src/keys.pem.txt",
+        ] {
+            assert!(!is_test_path(path), "{path} must stay out of test material");
+        }
+        for name in [
+            "api_key",
+            "API_KEY",
+            "signingKey",
+            "PRIVATE_KEY",
+            "client_secret",
+            "hmac_key",
+            "token",
+            "secret",
+            "password",
+            "auth_token",
+            "jwt",
+            "APIKEY",
+            "sessionSecret",
+            "keys",
+            "access_key2",
+            "sk",
+        ] {
+            assert!(is_secret_name(name), "{name} is key material");
+        }
+        for name in [
+            "key_name",
+            "api_key_id",
+            "public_key",
+            "pubkey",
+            "key_hash",
+            "secret_file",
+            "token_type",
+            "password_digest",
+            "monkey",
+            "donkey",
+            "whiskey",
+            "author",
+            "tokenizer",
+            "body",
+            "value",
+            "lit",
+            "key_path",
+            "credentials_dir",
+            "algorithm",
+        ] {
+            assert!(!is_secret_name(name), "{name} is not key material");
+        }
+    }
+
+    /// One line at a time: the binding, field, fallback, shell-default and
+    /// byte-array shapes the rule answers for — and the generated-value and
+    /// short-literal lines it leaves alone. The vectors live base64-encoded:
+    /// their text is exactly what the rule refuses, so this file must not
+    /// carry it as source — the same `b64:` escape the corpus uses.
+    #[test]
+    fn test_key_lines_hit_and_miss() {
+        let material = ["00112233", "ffeeddcc"].concat();
+        for encoded in [
+            "b64:QVBJX0tFWSA9ICJ7fSI=",
+            "b64:Y29uc3QgS0VZOiAmc3RyID0gInt9Ijs=",
+            "b64:bGV0IHRva2VuID0gInt9Ijs=",
+            "b64:bGV0IHNpZ25pbmdfa2V5ID0gYiJ7fSI7",
+            "b64:c2VjcmV0OiAie30i",
+            "b64:InByaXZhdGVfa2V5IjogInt9Ig==",
+            "b64:cGFzc3dvcmQgPSAie30i",
+            "b64:bGV0IGFwaV9rZXkgPSBTb21lKCJ7fSIpOw==",
+            "b64:bGV0IGtleSA9IGtleXM6OmZyb20oInt9Iik7",
+            "b64:bGV0IHRva2VuID0gZW52Ojp2YXIoIlQiKS51bndyYXBfb3IoInt9Iik7",
+            "b64:bGV0IHNlY3JldCA9IHN0ZDo6ZW52Ojp2YXIoIlMiKS51bndyYXBfb3JfZWxzZSh8fCAie30iKTs=",
+            "b64:Y29uc3Qga2V5ID0gcHJvY2Vzcy5lbnYuS0VZIHx8ICJ7fSI7",
+            "b64:bGV0IGtleSA9IHNlZWQudW53cmFwX29yKCJ7fSIp",
+            "b64:ZXhwb3J0IEFQSV9LRVk9JHtBUElfS0VZOi17fX0=",
+            "b64:Y29uc3QgS0VZOiBbdTg7IDRdID0gWzB4MTIsIDB4MzQsIDB4NTYsIDB4NzhdOw==",
+            "b64:Y29uc3QgS0VZOiBbdTg7IDMyXSA9IFswOyAzMl07",
+        ] {
+            let line = crate::util::b64_decode(encoded).replacen("{}", &material, 1);
+            assert!(test_key_line(&line), "must refuse: {line}");
+        }
+        for encoded in [
+            "b64:bGV0IGtleSA9IGlzc3VlKCZkaXIpLnVud3JhcCgpOw==",
+            "b64:bGV0IGtleSA9IHJhbmQ6OnJhbmRvbTo6PFt1ODsgMzJdPigpOw==",
+            "b64:bGV0IGtleSA9IHJhbmRvbV9ieXRlcygzMik7",
+            "b64:bGV0IGtleSA9IG1pbnRfa2V5KCk7",
+            "b64:bGV0IGFwaV9rZXkgPSByZWFkX2tleSgmZGlyKTs=",
+            "b64:bGV0IHNlY3JldCA9IHN0ZDo6ZW52Ojp2YXIoIlMiKS51bndyYXBfb3JfZWxzZSh8X3wgZ2VuKCkpOw==",
+            "b64:bGV0IGtleSA9ICJhYmMiOw==",
+            "b64:a2V5X25hbWUgPSAie30i",
+            "b64:cHVibGljX2tleSA9ICJ7fSI=",
+            "b64:bGV0IGtleV9pZCA9ICJ7fSI7",
+            "b64:bGV0IG1vbmtleSA9ICJ7fSI7",
+            "b64:bGV0IGtleSA9IHNvbWVfbWFwWyJrZXlmaWVsZCJdOw==",
+            "b64:InNyYy9zZWNyZXRzLnB5IjogInt9Ig==",
+        ] {
+            let line = crate::util::b64_decode(encoded).replacen("{}", &material, 1);
+            assert!(!test_key_line(&line), "must allow: {line}");
+        }
+    }
+
+    /// A test file's literal key is refused on the head tree — by directory
+    /// and by filename convention alike.
+    #[test]
+    fn a_literal_test_key_is_refused() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-testkey-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let material = ["deadbeef", "00112233"].concat();
+        std::fs::create_dir_all(root.join("tests")).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("tests/test_keys.py"),
+            format!("import test\nAPI_KEY = \"{material}\"\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("src/util.rs"),
+            format!("pub fn mint() -> [u8; 32] {{ rand::random() }}\n#[cfg(test)]\nmod tests {{\n    const KEY: &str = \"{material}\";\n}}\n"),
+        )
+        .unwrap();
+        // A generated value in a test file is exactly what the rule wants.
+        std::fs::write(
+            root.join("tests/generated.py"),
+            "import secrets\nTOKEN = secrets.token_hex(16)\n",
+        )
+        .unwrap();
+        let head = commit_all(root, "keys");
+
+        let target = range_target(String::new(), head);
+        let hits = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        assert!(
+            hits.iter()
+                .any(|h| h.rule == "test-key-default" && h.path == "tests/test_keys.py"),
+            "tests/ literal is refused: {:?}",
+            hits.iter().map(|h| &h.rule).collect::<Vec<_>>()
+        );
+        assert!(
+            hits.iter()
+                .any(|h| h.rule == "test-key-default" && h.path == "src/util.rs" && h.line == 4),
+            "the #[cfg(test)] module is test context: {:?}",
+            hits.iter()
+                .map(|h| format!("{}:{}", h.path, h.line))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            hits.len(),
+            2,
+            "generated keys stand: {}",
+            hits.iter()
+                .map(|h| format!("{}:{}", h.path, h.line))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        let summary = Summary {
+            label: "range".into(),
+            scope: "range".into(),
+            status: "refused".into(),
+            hits,
+            surfaces: None,
+            refused: "test-key-default".into(),
+        };
+        assert!(summary.unappealable());
+    }
+
+    /// A test key committed inside the range and deleted before the head is
+    /// still published history — the range-blob pass cannot miss it.
+    #[test]
+    fn a_test_key_removed_inside_the_range_is_still_scanned() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-testkey-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join("app.py"), "x = 1\n").unwrap();
+        let base = commit_all(root, "base");
+        let material = ["c0ffee", "11223344"].concat();
+        std::fs::create_dir_all(root.join("tests")).unwrap();
+        std::fs::write(
+            root.join("tests/test_auth.py"),
+            format!("SECRET = \"{material}\"\n"),
+        )
+        .unwrap();
+        commit_all(root, "middle");
+        std::fs::remove_file(root.join("tests/test_auth.py")).unwrap();
+        let head = commit_all(root, "head");
+
+        let target = range_target(base, head);
+        let hits = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        assert!(
+            hits.iter()
+                .any(|h| h.rule == "test-key-default" && h.path.contains("range blob")),
+            "the middle commit's test blob is scanned: {}",
+            hits.iter()
+                .map(|h| format!("{}:{}", h.path, h.rule))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
     /// A commit lands with whichever author and message the caller pins:
     /// attribution findings come from git metadata, so the fixture must be
     /// able to write identities the pinned helper cannot.
@@ -3933,7 +4619,10 @@ mod tests {
         commit_as(
             root,
             "agent author",
-            ("devin-ai-integration[bot]", "devin-ai-integration[bot]@users.noreply.github.com"),
+            (
+                "devin-ai-integration[bot]",
+                "devin-ai-integration[bot]@users.noreply.github.com",
+            ),
             ("Synthetic", "synthetic@example.invalid"),
         );
         std::fs::write(root.join("c.txt"), "c\n").unwrap();

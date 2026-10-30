@@ -146,30 +146,17 @@ mod tests {
             let name = case["name"].as_str().unwrap();
             // `b64:` marks base64 payloads: shapes the gate itself refuses
             // (credential forms) live encoded in the corpus and decode back to
-            // the real text the sanitizer must catch.
-            let input = case["input"].as_str().unwrap();
-            let decoded;
-            let input = match input.strip_prefix("b64:") {
-                Some(encoded) => {
-                    use base64::Engine as _;
-                    decoded = String::from_utf8(
-                        base64::engine::general_purpose::STANDARD
-                            .decode(encoded)
-                            .unwrap(),
-                    )
-                    .unwrap();
-                    decoded.as_str()
-                }
-                None => input,
-            };
+            // the real text the sanitizer must catch - the expected side
+            // carries the same escape when its pinned output is the shape.
+            let input = crate::util::b64_decode(case["input"].as_str().unwrap());
+            let expected_sanitize =
+                crate::util::b64_decode(expected[name]["sanitize"].as_str().unwrap());
+            let expected_source =
+                crate::util::b64_decode(expected[name]["sanitize_source"].as_str().unwrap());
+            assert_eq!(sanitize(&input), expected_sanitize, "case {name}");
             assert_eq!(
-                sanitize(input),
-                expected[name]["sanitize"].as_str().unwrap(),
-                "case {name}"
-            );
-            assert_eq!(
-                sanitize_source(input),
-                expected[name]["sanitize_source"].as_str().unwrap(),
+                sanitize_source(&input),
+                expected_source,
                 "case {name} (source)"
             );
         }

@@ -778,6 +778,191 @@ fn a_signed_operator_ruling_waives_the_gate_finding() {
     );
 }
 
+/// The fixture runner plus one diff page for the test file the scenario
+/// commits: a pass verdict needs every changed path reviewed.
+const TEST_KEY_RUNNER: &str = r#"#!/bin/bash
+set -euo pipefail
+contract="" run_dir=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --contract) contract="$2"; shift 2 ;;
+    --run) run_dir="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+exe="$(sed -n 's/.*"review": *"\([^"]*\)".*/\1/p' "$(dirname "$contract")/installation.json")"
+touch "$(dirname "$0")/runner-was-here"
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sample_context","arguments":{"operation":"inventory"}}}' \
+  '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"sample_context","arguments":{"operation":"diff","path":"src/main.rs"}}}' \
+  '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"sample_context","arguments":{"operation":"diff","path":"tests/test_keys.py"}}}' \
+  '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"sample_submit_review","arguments":{"verdict":"pass","summary":"clean","coverage":{"structure":{"status":"reviewed","reason":"looked"}},"findings":[],"unknowns":[]}}}' \
+  | "$exe" serve --contract "$contract" --run "$run_dir" > "$(dirname "$0")/serve-out.jsonl"
+printf '{"completed":true,"stop_reason":"completed","usage":{"input_tokens":1,"output_tokens":1,"cache_read_tokens":0,"cache_write_tokens":0},"profile":{"id":"sample-gate","revision":null,"principal":"synthetic"}}\n'
+"#;
+
+/// A signed verdict-level ruling for one head, so the deterministic
+/// refusal's appeal boundary can be exercised black-box.
+fn signed_verdict_ledger(root: &Path, head: &str) -> (PathBuf, PathBuf) {
+    let key = root.join("verdict-key");
+    let keygen = ssh_keygen(&[
+        "-q".as_ref(),
+        "-t".as_ref(),
+        "ed25519".as_ref(),
+        "-N".as_ref(),
+        "".as_ref(),
+        "-f".as_ref(),
+        key.as_os_str(),
+    ]);
+    assert!(
+        keygen.status.success(),
+        "ssh-keygen keygen failed: {}",
+        String::from_utf8_lossy(&keygen.stderr)
+    );
+    let public = std::fs::read_to_string(root.join("verdict-key.pub")).unwrap();
+    let anchor = root.join("verdict-anchor");
+    std::fs::write(
+        &anchor,
+        format!("rulings {}", public.trim_end_matches('\n')),
+    )
+    .unwrap();
+    let ledger = root.join("verdict-objections.toml");
+    std::fs::write(
+        &ledger,
+        format!(
+            "[[ruling]]\nid = \"ob-verdict\"\nchecker = \"sample-gate\"\nkind = \"verdict\"\nhead = \"{head}\"\nverdict = \"overruled\"\n"
+        ),
+    )
+    .unwrap();
+    let signature = ssh_keygen(&[
+        "-Y".as_ref(),
+        "sign".as_ref(),
+        "-n".as_ref(),
+        "test-rulings".as_ref(),
+        "-f".as_ref(),
+        key.as_os_str(),
+        ledger.as_os_str(),
+    ]);
+    assert!(
+        signature.status.success(),
+        "ssh-keygen sign failed: {}",
+        String::from_utf8_lossy(&signature.stderr)
+    );
+    (ledger, anchor)
+}
+
+/// The test-key rule refuses outright: a correctly signed verdict ruling
+/// commutes every other deterministic refusal but waives nothing here —
+/// the printed refusal names the unappealable boundary, and the same ledger
+/// still works against an appealable rule on the identical tree.
+#[test]
+fn a_verdict_ruling_cannot_waive_a_test_key_refusal() {
+    let (guard, base, _head) = fixture();
+    let root = guard.0.clone();
+    let repo = root.join("repo");
+    let runner = root.join("runner.sh");
+    std::fs::write(&runner, TEST_KEY_RUNNER).unwrap();
+    let material = ["cafe0123", "4567beef"].concat();
+    std::fs::create_dir_all(repo.join("tests")).unwrap();
+    std::fs::write(
+        repo.join("tests/test_keys.py"),
+        format!("API_KEY = \"{material}\"\n"),
+    )
+    .unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "test keys"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+
+    let mut contract: serde_json::Value = serde_json::from_str(CONTRACT).unwrap();
+    contract["stage1"] = serde_json::json!({
+        "label": "deterministic",
+        "rules": [{
+            "id": "test-key-generation",
+            "title": "test keys are generated, never defaulted",
+            "kind": "builtin",
+            "builtin": "test-key-generation"
+        }]
+    });
+    std::fs::write(
+        root.join("plugin/contract.json"),
+        serde_json::to_string_pretty(&contract).unwrap(),
+    )
+    .unwrap();
+
+    let refused = run_gate(&root, &repo, &base, &head);
+    assert!(!refused.status.success());
+    let stdout = String::from_utf8_lossy(&refused.stdout);
+    assert!(stdout.contains("refused: test-key-default"), "{stdout}");
+
+    // The signed verdict ruling names this head and checker — and still
+    // waives nothing. run_gate_env is the raw harness: move the pushed ref
+    // first, exactly as run_gate does.
+    let (ledger, anchor) = signed_verdict_ledger(&root, &head);
+    git(&repo, &["branch", "-f", "nightly", &head]);
+    let ruled = run_gate_env(
+        &root,
+        &repo,
+        &base,
+        &head,
+        &[
+            ("PROBATOR_RULINGS_LEDGER", &ledger),
+            ("PROBATOR_RULINGS_ANCHOR", &anchor),
+        ],
+    );
+    assert!(
+        !ruled.status.success(),
+        "a signed verdict ruling cannot waive the test-key refusal"
+    );
+    let stdout = String::from_utf8_lossy(&ruled.stdout);
+    assert!(
+        stdout.contains("unappealable deterministic findings stand"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("outcome waived by signed operator ruling"));
+
+    // Control: the identical ledger on the identical tree waives an
+    // appealable deterministic refusal — the ruling channel itself works.
+    let mut contract: serde_json::Value = serde_json::from_str(CONTRACT).unwrap();
+    contract["stage1"] = serde_json::json!({
+        "label": "deterministic",
+        "rules": [{
+            "id": "no-api-key",
+            "title": "API_KEY is forbidden",
+            "kind": "regex",
+            "pattern": "API_KEY",
+            "target": "revision-lines"
+        }]
+    });
+    std::fs::write(
+        root.join("plugin/contract.json"),
+        serde_json::to_string_pretty(&contract).unwrap(),
+    )
+    .unwrap();
+    git(&repo, &["branch", "-f", "nightly", &head]);
+    let waived = run_gate_env(
+        &root,
+        &repo,
+        &base,
+        &head,
+        &[
+            ("PROBATOR_RULINGS_LEDGER", &ledger),
+            ("PROBATOR_RULINGS_ANCHOR", &anchor),
+        ],
+    );
+    assert!(
+        waived.status.success(),
+        "an appealable refusal still yields to the same ruling; stderr: {}\nstdout: {}",
+        String::from_utf8_lossy(&waived.stderr),
+        String::from_utf8_lossy(&waived.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&waived.stdout)
+            .contains("deterministic refusal waived by signed verdict ruling")
+    );
+}
+
 /// The coverage cursor moves forward on the tape: a head the checker already
 /// covered is never re-opened — the next run's whole review surface is the
 /// increment since it, and the sealed receipt records that base.

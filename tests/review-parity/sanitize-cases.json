@@ -9,7 +9,7 @@
   },
   {
     "name": "key-value-pairs",
-    "input": "api_key = \"verysecret\"\npassword: 'also secret'\nauthorization=\"token value\""
+    "input": "b64:YXBpX2tleSA9ICJ2ZXJ5c2VjcmV0IgpwYXNzd29yZDogJ2Fsc28gc2VjcmV0JwphdXRob3JpemF0aW9uPSJ0b2tlbiB2YWx1ZSI="
   },
   {
     "name": "bearer-token",

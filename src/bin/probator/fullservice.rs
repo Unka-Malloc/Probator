@@ -602,7 +602,11 @@ mod tests {
                 for (path, content) in files.as_object().unwrap() {
                     let file = location.join(path);
                     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-                    std::fs::write(&file, content.as_str().unwrap()).unwrap();
+                    // `b64:` marks payloads whose plain text the gate itself
+                    // would refuse; the case decodes them back to the bytes
+                    // the snapshot must sanitize.
+                    std::fs::write(&file, crate::util::b64_decode(content.as_str().unwrap()))
+                        .unwrap();
                 }
                 projects.insert(
                     label.clone(),

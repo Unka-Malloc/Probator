@@ -43,6 +43,15 @@ Credential containers are deliberately outside your tool surface: `.env`,
 similar are judged by the deterministic stage before you run, and asking for
 them here will be refused. Never try to work around that.
 
+Test code has its own mechanical custody rule: every key a test uses is
+generated at run time, never written as a literal default. The deterministic
+stage refuses a key-named binding fed by a literal inside test material —
+`test/`/`tests/`/`fixtures` trees, `test_*`/`*_test`/`*.test.*`/`*_spec`
+files, `conftest.*`, and Rust code at or below `#[cfg(test)]` — including
+literal lists, byte arrays, call-site seeds and env-read fallbacks such as
+`unwrap_or("…")` or `|| "…"`. That refusal admits no operator ruling: the
+only path through is generating the value in code.
+
 ## Tooling hygiene
 
 Account for `tooling` in every review: find out which tools this project uses,

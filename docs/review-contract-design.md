@@ -17,8 +17,11 @@ The `probator` binary (`src/bin/probator.rs` + `src/bin/probator/`):
   on.
 - `stage1.rs` — the deterministic stage: the per-checker builtins
   (withheld-names-and-credentials, workspace-hygiene,
-  static-checklist, dependency-direction) plus regex rules executed
+  static-checklist, dependency-direction, commit-identity,
+  test-key-generation) plus regex rules executed
   as data over a declared target. The builtins own one coupled scan pass each.
+  `test-key-generation` findings are unappealable: their rule sits in
+  `UNAPPEALABLE_RULES`, so a signed verdict ruling never commutes them.
 - `documents.rs` — the operator-curated official-document fetcher: catalog
   keys, listed URLs, and unlisted pages on a catalog host; query/fragment-free
   self-located URLs resolved only to public addresses; redirects pinned to the

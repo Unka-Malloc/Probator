@@ -42,6 +42,12 @@
     "title": "Named sibling-repository references must follow the dependency direction",
     "kind": "builtin",
     "builtin": "dependency-direction"
+   },
+   {
+    "id": "test-key-generation",
+    "title": "Keys used in tests are generated at run time, never written as literal defaults; the refusal admits no ruling",
+    "kind": "builtin",
+    "builtin": "test-key-generation"
    }
   ]
  },

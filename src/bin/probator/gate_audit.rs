@@ -202,6 +202,12 @@ fn progress_noise(line: &str) -> bool {
     {
         return true;
     }
+    // RPC transcript lines an agent emits while driving its tools are
+    // chatter, not a diagnosis: they describe what the review was doing,
+    // never why it ended. The engine's own refusal line comes later.
+    if line.starts_with("{\"code\":") {
+        return true;
+    }
     let announcement = (line.starts_with("**") && line.ends_with("**") && line.len() > 4)
         || line.starts_with("Reading ");
     if !announcement {
@@ -507,8 +513,11 @@ fn run_checker(name: &str, argv: &[String], repo: &str, env: &[(&str, String)]) 
             // not finish, so the gate stays closed.
             if review_runner(argv) && !audit_completed(&stdout) {
                 let (detail, _) = failure_lines(&stdout, &stderr);
+                // The engine's own diagnosis is the last line it emitted:
+                // the first surviving line is usually agent chatter from
+                // mid-review, which describes what ran, not why it refused.
                 let tail = detail
-                    .first()
+                    .last()
                     .map(String::as_str)
                     .unwrap_or("no settled verdict was printed");
                 return vec![high(format!(
@@ -536,12 +545,12 @@ fn run_checker(name: &str, argv: &[String], repo: &str, env: &[(&str, String)]) 
         #[cfg(not(unix))]
         let signal = None;
         let message = if let Some(signal) = signal {
-            let first = detail
-                .first()
+            let tail = detail
+                .last()
                 .map(String::as_str)
                 .unwrap_or("no diagnostics");
             format!(
-                "{name}: audit did not complete — terminated by signal {signal}; no sealed report: {first}"
+                "{name}: audit did not complete — terminated by signal {signal}; no sealed report: {tail}"
             )
         } else if detail.is_empty() {
             let tail = if cleanup {
@@ -554,7 +563,7 @@ fn run_checker(name: &str, argv: &[String], repo: &str, env: &[(&str, String)]) 
             format!(
                 "{name}: audit did not complete — no sealed report (exit {:?}): {}",
                 output.status.code(),
-                detail[0]
+                detail[detail.len() - 1]
             )
         };
         return vec![high(message)];

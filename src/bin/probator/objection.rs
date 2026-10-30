@@ -449,12 +449,7 @@ pub fn verdict_waived(checker: &str, repo_slug: &str, head: &str) -> bool {
     let (Some(ledger), Some(anchor)) = (ledger_path(), anchor_path()) else {
         return false;
     };
-    verdict_waived_with(
-        &load_rulings_at(&ledger, &anchor),
-        checker,
-        repo_slug,
-        head,
-    )
+    verdict_waived_with(&load_rulings_at(&ledger, &anchor), checker, repo_slug, head)
 }
 
 /// The pure matching half of `verdict_waived`, kept beside `waivers_with`
@@ -859,7 +854,12 @@ mod tests {
     fn a_verdict_ruling_ignores_another_checker_and_repo() {
         let mut r = ruling("checker", "verdict");
         r.head = "abc".into();
-        assert!(!verdict_waived_with(&[r.clone()], "other", "owner/repo", "abc"));
+        assert!(!verdict_waived_with(
+            &[r.clone()],
+            "other",
+            "owner/repo",
+            "abc"
+        ));
         assert!(!verdict_waived_with(&[r], "checker", "other/repo", "abc"));
     }
 

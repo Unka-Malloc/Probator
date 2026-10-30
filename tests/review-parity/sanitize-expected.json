@@ -8,7 +8,7 @@
     "sanitize_source": "key [CREDENTIAL] and [CREDENTIAL] and [CREDENTIAL] and [CREDENTIAL] done"
   },
   "key-value-pairs": {
-    "sanitize": "api_key = \"[REDACTED]\"\npassword: \"[REDACTED]\"\nauthorization=\"[REDACTED]\"",
+    "sanitize": "b64:YXBpX2tleSA9ICJbUkVEQUNURURdIgpwYXNzd29yZDogIltSRURBQ1RFRF0iCmF1dGhvcml6YXRpb249IltSRURBQ1RFRF0i",
     "sanitize_source": "api_key = [REDACTED]\npassword: [REDACTED]\nauthorization=\"[REDACTED]\""
   },
   "bearer-token": {

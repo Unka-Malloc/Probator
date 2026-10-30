@@ -1641,16 +1641,25 @@ fn review_gate(
         }
         summaries = found;
         if !ok {
+            if summaries.iter().any(stage1::Summary::unappealable) {
+                println!(
+                    "{}: unappealable deterministic findings stand; no ruling can waive them",
+                    contract.title
+                );
+            }
             // A certified verdict ruling for a refused head accepts that
             // target's deterministic outcome, so the audit continues: the
             // sealed report still carries every hit and the gate names the
-            // ruling that waived them. One unruled refusal stops the run.
+            // ruling that waived them. A summary carrying an unappealable
+            // hit is counted unwaived whatever the ledger says. One unruled
+            // refusal stops the run.
             let unwaived = targets
                 .iter()
                 .zip(summaries.iter())
                 .filter(|(_, summary)| !summary.refused.is_empty())
-                .filter(|(target, _)| {
-                    !objection::verdict_waived(&contract.name, &repo_id, &target.head)
+                .filter(|(target, summary)| {
+                    summary.unappealable()
+                        || !objection::verdict_waived(&contract.name, &repo_id, &target.head)
                 })
                 .count();
             if unwaived == 0 {
