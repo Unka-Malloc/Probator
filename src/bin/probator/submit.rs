@@ -17,6 +17,10 @@ pub struct ReviewState<'a> {
     pub reviewed: &'a HashSet<String>,
     /// The official-document URLs fetched this review.
     pub fetched: &'a HashSet<String>,
+    /// The deterministic suspects the verdict must answer, by fingerprint.
+    pub adjudications: &'a [String],
+    /// The suspects whose evidence the reviewer opened this review.
+    pub adjudicated: &'a HashSet<String>,
 }
 
 /// Python truthiness: the engine's `not finding.get(key)` rejects missing,
@@ -123,6 +127,45 @@ pub fn validate(contract: &Contract, state: &ReviewState, report: &Value) -> Res
                     "findings[{index}].sources must be a list of fetched official URL strings; available: {}",
                     available.join(", ")
                 ));
+            }
+        }
+    }
+    // Every deterministic suspect must be inspected and answered: an item
+    // the reviewer never opened is not analysis, and an unanswered item is
+    // not a verdict. A pass verdict cannot stand on a confirmed key.
+    if !state.adjudications.is_empty() {
+        for id in state.adjudications {
+            if !state.adjudicated.contains(id) {
+                return Err(format!("Adjudication item {id} was not inspected"));
+            }
+        }
+        let Some(answers) = report["adjudications"].as_array() else {
+            return Err("Every adjudication item must be answered".to_string());
+        };
+        let mut covered = HashSet::new();
+        for answer in answers {
+            let item = answer["item"].as_str().unwrap_or("");
+            if !state.adjudications.iter().any(|id| id == item) {
+                return Err(format!("Unknown adjudication item '{item}'"));
+            }
+            if !covered.insert(item) {
+                return Err(format!("Adjudication item '{item}' answered twice"));
+            }
+            if answer["key"].as_bool().is_none() {
+                return Err(format!("adjudications[{item}].key must be true or false"));
+            }
+            if !truthy(&answer["reason"]) {
+                return Err(format!(
+                    "adjudications[{item}].reason is required and must not be empty"
+                ));
+            }
+            if verdict == "pass" && answer["key"] == true {
+                return Err("Confirmed key material cannot pass".to_string());
+            }
+        }
+        for id in state.adjudications {
+            if !covered.contains(id.as_str()) {
+                return Err(format!("Adjudication item {id} is unanswered"));
             }
         }
     }
@@ -255,6 +298,8 @@ mod tests {
                     changed: &changed,
                     reviewed: &reviewed,
                     fetched: &fetched,
+                    adjudications: &[],
+                    adjudicated: &HashSet::new(),
                 };
                 let outcome = validate(&contract, &state, &cell["report"]);
                 match (outcome, cell["expected"]["error"].as_str()) {
@@ -296,6 +341,8 @@ mod tests {
                 changed: &changed,
                 reviewed: &reviewed,
                 fetched: &fetched,
+                adjudications: &[],
+                adjudicated: &HashSet::new(),
             };
             let full = cell["full"].as_object().unwrap();
             let projects: Vec<String> = serde_json::from_value(full["projects"].clone()).unwrap();

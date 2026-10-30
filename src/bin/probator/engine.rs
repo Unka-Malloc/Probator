@@ -613,6 +613,105 @@ fn cursor_advance(
     let _ = evidence::write_json(&path, &store);
 }
 
+// ---------------------------------------------------------------------------
+// adjudication ledger
+// ---------------------------------------------------------------------------
+
+/// The adjudication ledger file: every deterministic suspect the reviewer
+/// has answered, keyed per repository under one file per checker — the same
+/// layout the coverage cursors use.
+fn adjudication_file(profiles: &Path, checker: &str) -> PathBuf {
+    profiles
+        .join("adjudications")
+        .join(format!("{checker}.json"))
+}
+
+/// The ledger key for one suspect: repository-scoped like the cursor keys.
+fn adjudication_key(repo_id: &str, id: &str) -> String {
+    format!("{repo_id}#{id}")
+}
+
+/// The recorded answer for one fingerprint, or None when the item is new or
+/// its stored entry fails the seal check — an unverifiable answer is no
+/// answer and the item is judged again.
+fn adjudication_verdict(store: &Value, repo_id: &str, id: &str) -> Option<(String, String)> {
+    let entry = &store[adjudication_key(repo_id, id)];
+    if !crate::seal::valid(entry) {
+        return None;
+    }
+    Some((
+        entry["verdict"].as_str()?.to_string(),
+        entry["reason"].as_str().unwrap_or("").to_string(),
+    ))
+}
+
+/// One target's adjudication work: the suspects the reviewer must still
+/// answer, the ones earlier reviews already confirmed as key material with
+/// the reason they recorded, and where the ledger lives.
+struct AdjudicationWork {
+    pending: Vec<stage1::Adjudication>,
+    confirmed: Vec<(stage1::Adjudication, String)>,
+    ledger: PathBuf,
+}
+
+/// Split one target's suspects into what the reviewer must still answer
+/// (`pending`) and what an earlier review already confirmed as key material
+/// (`confirmed`). A dismissed suspect - judged an identifier, a protocol
+/// field or another non-secret - emits no verdict here at all.
+fn resolve_adjudications(
+    store: &Value,
+    repo_id: &str,
+    items: &[stage1::Adjudication],
+) -> AdjudicationWork {
+    let mut work = AdjudicationWork {
+        pending: Vec::new(),
+        confirmed: Vec::new(),
+        ledger: PathBuf::new(),
+    };
+    for item in items {
+        match adjudication_verdict(store, repo_id, &item.id) {
+            Some((verdict, reason)) if verdict == "key-material" => {
+                work.confirmed.push((item.clone(), reason));
+            }
+            Some(_) => {}
+            None => work.pending.push(item.clone()),
+        }
+    }
+    work
+}
+
+/// Record the reviewer's answers under each item's fingerprint. Entries are
+/// self-sealed like cursor entries: a tampered or hand-written verdict fails
+/// `seal::valid` and the suspect is asked about again rather than believed.
+fn adjudication_record(
+    path: &Path,
+    repo_id: &str,
+    head: &str,
+    answers: &[(&stage1::Adjudication, &str, String)],
+) {
+    if answers.is_empty() {
+        return;
+    }
+    let mut store: Value = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_else(|| json!({}));
+    for (item, verdict, reason) in answers {
+        let mut entry = json!({
+            "verdict": verdict,
+            "reason": reason,
+            "head": head,
+            "at": crate::date::timestamp_string(crate::date::epoch_secs()),
+        });
+        entry["seal"] = json!(crate::seal::seal("", &entry));
+        store[adjudication_key(repo_id, &item.id)] = entry;
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = evidence::write_json(path, &store);
+}
+
 /// The commit this review may start from: the descendant of the target's own
 /// base and the checker's coverage cursor — content at or below either was
 /// already published or already reviewed, and is never reviewed twice. When
@@ -1089,9 +1188,11 @@ fn agent_review(
 // one target, then the gate
 // ---------------------------------------------------------------------------
 
-/// The per-hit detail lines under a refused stage-one report.
+/// The per-hit detail lines under a refused stage-one report. Adjudication
+/// items print whenever a rule emitted them - they are notices to the
+/// semantic stage, not hits the deterministic stage refuses on.
 fn stage1_lines(contract: &Contract, summary: &stage1::Summary) -> Vec<String> {
-    if contract
+    let mut lines = if contract
         .stage1
         .as_ref()
         .is_some_and(|stage1| stage1.surfaces)
@@ -1114,20 +1215,29 @@ fn stage1_lines(contract: &Contract, summary: &stage1::Summary) -> Vec<String> {
                 format!("notice {}:{} {}", surface.path, surface.line, surface.rule)
             }));
         }
-        return lines;
+        lines
+    } else {
+        summary
+            .hits
+            .iter()
+            .map(|hit| {
+                let suffix = if hit.line > 0 {
+                    format!(":{}", hit.line)
+                } else {
+                    String::new()
+                };
+                format!("{}{} {}", hit.path, suffix, hit.rule)
+            })
+            .collect()
+    };
+    if let Some(items) = &summary.adjudications {
+        lines.extend(
+            items
+                .iter()
+                .map(|item| format!("adjudication {}:{} {}", item.path, item.line, item.rule)),
+        );
     }
-    summary
-        .hits
-        .iter()
-        .map(|hit| {
-            let suffix = if hit.line > 0 {
-                format!(":{}", hit.line)
-            } else {
-                String::new()
-            };
-            format!("{}{} {}", hit.path, suffix, hit.rule)
-        })
-        .collect()
+    lines
 }
 
 /// The waiver note when certified rulings flip a non-pass outcome to a
@@ -1234,6 +1344,7 @@ fn review_target(
     repo_id: &str,
     summary: Option<&stage1::Summary>,
     summaries: &[stage1::Summary],
+    adjudication: AdjudicationWork,
     runtime: &Map<String, Value>,
     contract: &Contract,
 ) -> Result<i32, String> {
@@ -1356,6 +1467,19 @@ fn review_target(
             scope["surfaces"] = json!(surfaces);
         }
     }
+    // Unanswered suspects ride the scope as adjudication items: the
+    // evidence server serves each one's recorded blob through the
+    // adjudication operation, and the verdict cannot seal until every
+    // item is inspected and answered.
+    if !adjudication.pending.is_empty() {
+        scope["adjudications"] = json!(
+            adjudication
+                .pending
+                .iter()
+                .map(stage1::Adjudication::to_scope_json)
+                .collect::<Vec<_>>()
+        );
+    }
     evidence::write_json(&run_dir.join("scope.json"), &scope)?;
     // The run's verdict credential: minted (or reused after an unfinished
     // attempt) before the reviewer starts, held here for the receipt check
@@ -1404,6 +1528,65 @@ fn review_target(
                 .unwrap_or_default();
             if moved != target.head {
                 return Err("The pushed ref moved during review; publication refused".to_string());
+            }
+        }
+        // The reviewer's adjudication answers settle the pending suspects:
+        // every answer is recorded under the item's fingerprint so an
+        // unchanged line is never asked about again, and every confirmed
+        // literal becomes a blocking finding before the receipt computes
+        // its standing result.
+        let mut confirmed: Vec<(&stage1::Adjudication, String)> = adjudication
+            .confirmed
+            .iter()
+            .map(|(item, reason)| (item, reason.clone()))
+            .collect();
+        if !adjudication.pending.is_empty() {
+            let answers = report["adjudications"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let mut records: Vec<(&stage1::Adjudication, &str, String)> = Vec::new();
+            for item in &adjudication.pending {
+                let Some(answer) = answers
+                    .iter()
+                    .find(|answer| answer["item"].as_str() == Some(item.id.as_str()))
+                else {
+                    return Err("The verdict left an adjudication item unanswered".to_string());
+                };
+                let verdict = if answer["key"].as_bool() == Some(true) {
+                    "key-material"
+                } else {
+                    "identifier"
+                };
+                let reason = answer["reason"].as_str().unwrap_or("").to_string();
+                if verdict == "key-material" {
+                    confirmed.push((item, reason.clone()));
+                }
+                records.push((item, verdict, reason));
+            }
+            adjudication_record(&adjudication.ledger, repo_id, &target.head, &records);
+        }
+        if !confirmed.is_empty() {
+            if !report["findings"].is_array() {
+                report["findings"] = json!([]);
+            }
+            let findings = report["findings"].as_array_mut().unwrap();
+            for (item, reason) in confirmed {
+                findings.push(json!({
+                    "file": item.path,
+                    "line": item.line,
+                    "severity": "blocking",
+                    "rule": item.rule,
+                    "evidence": "Adjudicated by the reviewer as literal test-key material",
+                    "impact": if reason.is_empty() {
+                        "A hard-coded test key publishes reusable secret material".to_string()
+                    } else {
+                        reason
+                    },
+                    "remedy": "mint it in code; test keys are generated at run time, never defaulted",
+                    "validation": format!("adjudication {}", item.id),
+                    "origin": "adjudication",
+                }));
             }
         }
         // Blocking findings the coverage ledger holds on content this range
@@ -1625,8 +1808,13 @@ fn review_gate(
                 .as_ref()
                 .map(|surfaces| format!(", surfaces={}", surfaces.len()))
                 .unwrap_or_default();
+            let adjudications = summary
+                .adjudications
+                .as_ref()
+                .map(|items| format!(", adjudications={}", items.len()))
+                .unwrap_or_default();
             println!(
-                "{}: {} {} — {} ({}, findings={}{})",
+                "{}: {} {} — {} ({}, findings={}{}{})",
                 contract.title,
                 stage_label,
                 state,
@@ -1634,6 +1822,7 @@ fn review_gate(
                 summary.scope,
                 summary.hits.len(),
                 surfaces,
+                adjudications,
             );
             for line in stage1_lines(contract, summary) {
                 println!("  {line}");
@@ -1678,7 +1867,26 @@ fn review_gate(
     }
     let reviewer = runtime_identity(settings, contract, runtime);
     let runs = settings.profile.join(format!("{}-runs", contract.name));
+    let adjudication_ledger = adjudication_file(profiles_root(settings), &contract.name);
     for (index, target) in targets.iter().enumerate() {
+        // The adjudication ledger is re-read per target: an answer sealed by
+        // this same run's earlier target already counts — an unchanged
+        // suspect is never asked about twice, wherever it was judged.
+        let adjudication_store: Value = std::fs::read_to_string(&adjudication_ledger)
+            .ok()
+            .and_then(|raw| serde_json::from_str(&raw).ok())
+            .unwrap_or_else(|| json!({}));
+        let summary = summaries.get(index);
+        let mut adjudication = summary
+            .and_then(|summary| summary.adjudications.as_ref())
+            .map(|items| resolve_adjudications(&adjudication_store, &repo_id, items))
+            .unwrap_or_else(|| AdjudicationWork {
+                pending: Vec::new(),
+                confirmed: Vec::new(),
+                ledger: adjudication_ledger.clone(),
+            });
+        adjudication.ledger = adjudication_ledger.clone();
+        let adjudication = adjudication;
         // The coverage ledger: this checker's newest complete judgement on
         // this head's ancestry line for this reviewer identity. Content at
         // or below it — or at or below the target's own base — is never
@@ -1687,10 +1895,16 @@ fn review_gate(
             .filter(|entry| ancestor_of(repo, &entry.head, &target.head));
         // The identical head already carries this checker's judgement; the
         // ledger's outcome stands as-is — a signed ruling may still waive it.
-        if let Some(entry) = &cursor
+        // An unanswered suspect or a confirmed key is not covered by that
+        // judgement, though: either sends the target through a fresh review.
+        if adjudication.pending.is_empty()
+            && let Some(entry) = &cursor
             && entry.head == target.head
         {
-            if entry.verdict == "pass" && entry.findings.is_empty() {
+            if entry.verdict == "pass"
+                && entry.findings.is_empty()
+                && adjudication.confirmed.is_empty()
+            {
                 println!(
                     "{}: {} already passed its semantic review ({}); reusing that verdict",
                     contract.title,
@@ -1734,14 +1948,17 @@ fn review_gate(
                     .unwrap_or(0),
             );
         }
-        if let Some(receipt) = audited(
-            settings,
-            contract,
-            &repo_id,
-            base.as_deref(),
-            &target.head,
-            runtime,
-        ) {
+        if adjudication.pending.is_empty()
+            && adjudication.confirmed.is_empty()
+            && let Some(receipt) = audited(
+                settings,
+                contract,
+                &repo_id,
+                base.as_deref(),
+                &target.head,
+                runtime,
+            )
+        {
             println!(
                 "{}: {} already passed its semantic review ({}); reusing that verdict",
                 contract.title,
@@ -1762,7 +1979,6 @@ fn review_gate(
             );
             continue;
         }
-        let summary = summaries.get(index);
         if review_target(
             repo,
             settings,
@@ -1772,6 +1988,7 @@ fn review_gate(
             &repo_id,
             summary,
             &summaries,
+            adjudication,
             runtime,
             contract,
         )? != 0

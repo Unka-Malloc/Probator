@@ -31,6 +31,9 @@
         "offset": {
           "type": "integer"
         },
+        "item": {
+          "type": "string"
+        },
         "revision": {
           "type": "string",
           "enum": [

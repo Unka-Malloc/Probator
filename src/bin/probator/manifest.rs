@@ -58,6 +58,7 @@ fn context_schema(operations: &[String], revision_label: &str) -> Value {
         "text": {"type": "string"},
         "start": {"type": "integer"},
         "offset": {"type": "integer"},
+        "item": {"type": "string"},
         "revision": {"type": "string", "enum": [revision_label, "base"]},
     })
 }

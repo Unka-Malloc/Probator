@@ -11,13 +11,14 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// The evidence verbs a context tool may offer, mirrored from the schema enum.
-pub const VERBS: [&str; 6] = [
+pub const VERBS: [&str; 7] = [
     "inventory",
     "original_request",
     "list",
     "diff",
     "read",
     "find",
+    "adjudication",
 ];
 /// The git hook and forge events a checker may bind to.
 pub const EVENTS: [&str; 7] = [

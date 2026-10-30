@@ -1,7 +1,7 @@
 [
   {
     "name": "privacy_context",
-    "description": "Inspect the immutable outgoing range. Start with inventory, then diff every changed file to its end; read is 400 lines with start; find is a literal search over the range. Credential containers are unavailable by design.",
+    "description": "Inspect the immutable outgoing range. Start with inventory — it lists every adjudication item the deterministic stage could not classify, each opened with the adjudication operation — then diff every changed file to its end; read is 400 lines with start; find is a literal search over the range. Credential containers are unavailable by design.",
     "parameters": {
       "type": "object",
       "properties": {
@@ -12,7 +12,8 @@
             "list",
             "diff",
             "read",
-            "find"
+            "find",
+            "adjudication"
           ]
         },
         "path": {
@@ -29,6 +30,9 @@
         },
         "offset": {
           "type": "integer"
+        },
+        "item": {
+          "type": "string"
         },
         "revision": {
           "type": "string",

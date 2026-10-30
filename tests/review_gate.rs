@@ -778,9 +778,15 @@ fn a_signed_operator_ruling_waives_the_gate_finding() {
     );
 }
 
-/// The fixture runner plus one diff page for the test file the scenario
-/// commits: a pass verdict needs every changed path reviewed.
-const TEST_KEY_RUNNER: &str = r#"#!/bin/bash
+/// The adjudication fixture runner: a probe session lists the inventory —
+/// the adjudication item ids and the increment's changed paths come from it
+/// rather than being guessed — then the answering session diffs every
+/// changed path and submits. Flag files steer the verdict:
+/// `adjudicate-allow` answers the suspect as a plain identifier,
+/// `adjudicate-confirm` answers it as literal key material with the block
+/// verdict an honest review gives it, and `probe-unanswered` first submits
+/// without inspecting or answering to exercise the in-band refusal.
+const ADJUDICATION_RUNNER: &str = r#"#!/bin/bash
 set -euo pipefail
 contract="" run_dir=""
 while [ $# -gt 0 ]; do
@@ -791,15 +797,50 @@ while [ $# -gt 0 ]; do
   esac
 done
 exe="$(sed -n 's/.*"review": *"\([^"]*\)".*/\1/p' "$(dirname "$contract")/installation.json")"
-touch "$(dirname "$0")/runner-was-here"
+here="$(dirname "$0")"
+touch "$here/runner-was-here"
 printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sample_context","arguments":{"operation":"inventory"}}}' \
-  '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"sample_context","arguments":{"operation":"diff","path":"src/main.rs"}}}' \
-  '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"sample_context","arguments":{"operation":"diff","path":"tests/test_keys.py"}}}' \
-  '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"sample_submit_review","arguments":{"verdict":"pass","summary":"clean","coverage":{"structure":{"status":"reviewed","reason":"looked"}},"findings":[],"unknowns":[]}}}' \
-  | "$exe" serve --contract "$contract" --run "$run_dir" > "$(dirname "$0")/serve-out.jsonl"
+  | "$exe" serve --contract "$contract" --run "$run_dir" > "$here/probe-out.jsonl"
+item="$(sed -n 's/.*\\"item\\":\\"\([0-9a-f]\{64\}\)\\".*/\1/p' "$here/probe-out.jsonl" | head -n1)"
+lines=(
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}'
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+  '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sample_context","arguments":{"operation":"inventory"}}}'
+)
+request=10
+while IFS= read -r path; do
+  if [ -n "$path" ]; then
+    lines+=('{"jsonrpc":"2.0","id":'"$request"',"method":"tools/call","params":{"name":"sample_context","arguments":{"operation":"diff","path":"'"$path"'"}}}')
+    request=$((request + 1))
+  fi
+done <<EOF
+$(sed -n 's/.*\\"changed\\":\[\([^]]*\)\].*/\1/p' "$here/probe-out.jsonl" | head -n1 | tr ',' '\n' | sed 's/\\"//g')
+EOF
+if [ -f "$here/probe-unanswered" ]; then
+  lines+=('{"jsonrpc":"2.0","id":'"$request"',"method":"tools/call","params":{"name":"sample_submit_review","arguments":{"verdict":"pass","summary":"clean","coverage":{"structure":{"status":"reviewed","reason":"looked"}},"findings":[],"unknowns":[]}}}')
+  request=$((request + 1))
+fi
+verdict='pass' summary='clean' answer=''
+if [ -n "$item" ] && [ -f "$here/adjudicate-confirm" ]; then
+  answer=',"adjudications":[{"item":"'"$item"'","key":true,"reason":"the hex literal is reusable key material"}]'
+  verdict='block' summary='literal test key confirmed'
+elif [ -n "$item" ] && [ -f "$here/adjudicate-allow" ]; then
+  answer=',"adjudications":[{"item":"'"$item"'","key":false,"reason":"identifier naming the sandbox endpoint, not credential material"}]'
+fi
+if [ -n "$item" ] && { [ -f "$here/adjudicate-allow" ] || [ -f "$here/adjudicate-confirm" ]; }; then
+  lines+=('{"jsonrpc":"2.0","id":'"$request"',"method":"tools/call","params":{"name":"sample_context","arguments":{"operation":"adjudication","item":"'"$item"'"}}}')
+  request=$((request + 1))
+fi
+if [ "$verdict" = "block" ]; then
+  findings='[{"file":"tests/test_keys.py","line":1,"severity":"blocking","evidence":"the hex literal is reusable key material","impact":"a published default anyone can replay","remedy":"mint the key at run time"}]'
+else
+  findings='[]'
+fi
+lines+=('{"jsonrpc":"2.0","id":'"$request"',"method":"tools/call","params":{"name":"sample_submit_review","arguments":{"verdict":"'"$verdict"'","summary":"'"$summary"'","coverage":{"structure":{"status":"reviewed","reason":"looked"}},"findings":'"$findings"',"unknowns":[]'"$answer"'}}}')
+printf '%s\n' "${lines[@]}" | "$exe" serve --contract "$contract" --run "$run_dir" > "$here/serve-out.jsonl"
 printf '{"completed":true,"stop_reason":"completed","usage":{"input_tokens":1,"output_tokens":1,"cache_read_tokens":0,"cache_write_tokens":0},"profile":{"id":"sample-gate","revision":null,"principal":"synthetic"}}\n'
 "#;
 
@@ -853,28 +894,18 @@ fn signed_verdict_ledger(root: &Path, head: &str) -> (PathBuf, PathBuf) {
     (ledger, anchor)
 }
 
-/// The test-key rule refuses outright: a correctly signed verdict ruling
-/// commutes every other deterministic refusal but waives nothing here —
-/// the printed refusal names the unappealable boundary, and the same ledger
-/// still works against an appealable rule on the identical tree.
-#[test]
-fn a_verdict_ruling_cannot_waive_a_test_key_refusal() {
-    let (guard, base, _head) = fixture();
-    let root = guard.0.clone();
-    let repo = root.join("repo");
-    let runner = root.join("runner.sh");
-    std::fs::write(&runner, TEST_KEY_RUNNER).unwrap();
-    let material = ["cafe0123", "4567beef"].concat();
+/// The test-key sweep reports a suspect rather than refusing outright: the
+/// deterministic stage stays clean, but the review cannot seal until the
+/// reviewer opens the item through the adjudication operation and answers
+/// it in the verdict. An identifier answer lands in the sealed ledger under
+/// the suspect's content fingerprint — the same head reuses its receipt,
+/// and a new head carrying the identical line is never asked about it.
+fn test_key_contract(root: &Path, repo: &Path, line: &str) -> String {
     std::fs::create_dir_all(repo.join("tests")).unwrap();
-    std::fs::write(
-        repo.join("tests/test_keys.py"),
-        format!("API_KEY = \"{material}\"\n"),
-    )
-    .unwrap();
-    git(&repo, &["add", "-A"]);
-    git(&repo, &["commit", "-qm", "test keys"]);
-    let head = git(&repo, &["rev-parse", "HEAD"]);
-
+    std::fs::write(repo.join("tests/test_keys.py"), format!("{line}\n")).unwrap();
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-qm", "test keys"]);
+    let head = git(repo, &["rev-parse", "HEAD"]);
     let mut contract: serde_json::Value = serde_json::from_str(CONTRACT).unwrap();
     contract["stage1"] = serde_json::json!({
         "label": "deterministic",
@@ -885,20 +916,195 @@ fn a_verdict_ruling_cannot_waive_a_test_key_refusal() {
             "builtin": "test-key-generation"
         }]
     });
+    contract["tools"]["context"] =
+        serde_json::json!(["inventory", "list", "diff", "read", "find", "adjudication"]);
     std::fs::write(
         root.join("plugin/contract.json"),
         serde_json::to_string_pretty(&contract).unwrap(),
     )
     .unwrap();
+    head
+}
+
+#[test]
+fn a_test_key_suspect_is_adjudicated_not_refused() {
+    let (guard, base, _head) = fixture();
+    let root = guard.0.clone();
+    let repo = root.join("repo");
+    let runner = root.join("runner.sh");
+    std::fs::write(&runner, ADJUDICATION_RUNNER).unwrap();
+    let head = test_key_contract(&root, &repo, "SCOPE_KEY = \"sandbox-scope-label\"");
+    std::fs::write(root.join("probe-unanswered"), "").unwrap();
+    std::fs::write(root.join("adjudicate-allow"), "").unwrap();
+
+    let first = run_gate(&root, &repo, &base, &head);
+    let stdout = String::from_utf8_lossy(&first.stdout);
+    assert!(
+        first.status.success(),
+        "stderr: {}\nstdout: {stdout}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    // The stage names the suspect instead of refusing it.
+    assert!(stdout.contains("deterministic clean"), "{stdout}");
+    assert!(
+        stdout.contains("adjudication tests/test_keys.py"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("refused: test-key-default"), "{stdout}");
+
+    // The submission channel enforced the adjudication: the verdict sent
+    // before the item was opened was refused in-band, and only the session
+    // that inspected and answered sealed.
+    let served = std::fs::read_to_string(root.join("serve-out.jsonl")).unwrap();
+    assert!(served.contains("was not inspected"), "{served}");
+
+    // The identifier answer is recorded in the sealed adjudication ledger
+    // under the suspect's content fingerprint.
+    let ledger: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("adjudications/sample-gate.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        ledger
+            .as_object()
+            .unwrap()
+            .values()
+            .any(|entry| entry["verdict"] == "identifier"),
+        "{ledger}"
+    );
+
+    // The identical head reuses the sealed receipt: no new review, no
+    // re-asked suspect.
+    std::fs::remove_file(root.join("runner-was-here")).unwrap();
+    let again = run_gate(&root, &repo, &base, &head);
+    assert!(again.status.success());
+    assert!(
+        !root.join("runner-was-here").exists(),
+        "a sealed receipt must not reopen the review"
+    );
+
+    // A new head carrying the identical suspect line inherits the answer:
+    // the reviewer still pays for the increment, but the scope holds no
+    // adjudication item, so a plain verdict seals.
+    std::fs::remove_file(root.join("probe-unanswered")).unwrap();
+    std::fs::remove_file(root.join("adjudicate-allow")).unwrap();
+    std::fs::write(repo.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "lib"]);
+    let head2 = git(&repo, &["rev-parse", "HEAD"]);
+    let second = run_gate(&root, &repo, &base, &head2);
+    assert!(
+        second.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(
+        root.join("runner-was-here").exists(),
+        "a new head still pays a review"
+    );
+}
+
+/// A suspect confirmed as literal key material is a blocking finding like
+/// any other: it stands across commits while the blob that carries it stays
+/// inside the published range. Rewriting the line raises a fresh suspect
+/// the reviewer answers anew — but the confirmed blob still publishes, so
+/// the gate keeps refusing on the confirmed verdict.
+#[test]
+fn a_confirmed_test_key_stays_blocked_while_its_blob_publishes() {
+    let (guard, base, _head) = fixture();
+    let root = guard.0.clone();
+    let repo = root.join("repo");
+    let runner = root.join("runner.sh");
+    std::fs::write(&runner, ADJUDICATION_RUNNER).unwrap();
+    let material = ["cafe0123", "4567beef"].concat();
+    let head = test_key_contract(&root, &repo, &format!("API_KEY = \"{material}\""));
+    std::fs::write(root.join("adjudicate-confirm"), "").unwrap();
+
+    let first = run_gate(&root, &repo, &base, &head);
+    assert!(
+        !first.status.success(),
+        "a confirmed test key must refuse the gate"
+    );
+    let report = newest_report(&root);
+    assert!(
+        report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["file"] == "tests/test_keys.py"
+                && finding["severity"] == "blocking"),
+        "{report}"
+    );
+
+    // An unrelated commit keeps the same suspect line: the recorded verdict
+    // confirms it again, no re-asked adjudication, still refused.
+    std::fs::write(repo.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "lib"]);
+    let head2 = git(&repo, &["rev-parse", "HEAD"]);
+    let second = run_gate(&root, &repo, &base, &head2);
+    assert!(
+        !second.status.success(),
+        "the confirmed suspect still stands on an unchanged line"
+    );
+
+    // Rewrite the suspect line: the new content is a fresh suspect the
+    // reviewer answers as an identifier — but the removed blob still sits
+    // inside the published range, so the recorded key-material verdict on
+    // it keeps the gate refused.
+    std::fs::remove_file(root.join("adjudicate-confirm")).unwrap();
+    std::fs::write(root.join("adjudicate-allow"), "").unwrap();
+    std::fs::write(
+        repo.join("tests/test_keys.py"),
+        "SCOPE_KEY = \"sandbox-scope-label\"\n",
+    )
+    .unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "rename the suspect"]);
+    let head3 = git(&repo, &["rev-parse", "HEAD"]);
+    let third = run_gate(&root, &repo, &base, &head3);
+    assert!(
+        !third.status.success(),
+        "the confirmed blob still publishes; stderr: {}\nstdout: {}",
+        String::from_utf8_lossy(&third.stderr),
+        String::from_utf8_lossy(&third.stdout)
+    );
+    // The fresh suspect was answered — the refusal stands on the earlier
+    // confirmation, not on an unanswered item.
+    let report = newest_report(&root);
+    assert!(
+        report["adjudications"]
+            .as_array()
+            .is_some_and(|answers| answers.iter().any(|answer| answer["key"] == false)),
+        "{report}"
+    );
+    assert!(
+        report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["origin"] == "adjudication"
+                && finding["file"] == "tests/test_keys.py"),
+        "{report}"
+    );
+}
+
+/// A confirmed test key is appealable like every other finding: a signed
+/// verdict ruling on this head and checker waives the refused outcome.
+#[test]
+fn a_verdict_ruling_waives_the_adjudicated_refusal() {
+    let (guard, base, _head) = fixture();
+    let root = guard.0.clone();
+    let repo = root.join("repo");
+    let runner = root.join("runner.sh");
+    std::fs::write(&runner, ADJUDICATION_RUNNER).unwrap();
+    let material = ["cafe0123", "4567beef"].concat();
+    let head = test_key_contract(&root, &repo, &format!("API_KEY = \"{material}\""));
+    std::fs::write(root.join("adjudicate-confirm"), "").unwrap();
 
     let refused = run_gate(&root, &repo, &base, &head);
     assert!(!refused.status.success());
-    let stdout = String::from_utf8_lossy(&refused.stdout);
-    assert!(stdout.contains("refused: test-key-default"), "{stdout}");
 
-    // The signed verdict ruling names this head and checker — and still
-    // waives nothing. run_gate_env is the raw harness: move the pushed ref
-    // first, exactly as run_gate does.
     let (ledger, anchor) = signed_verdict_ledger(&root, &head);
     git(&repo, &["branch", "-f", "nightly", &head]);
     let ruled = run_gate_env(
@@ -911,55 +1117,15 @@ fn a_verdict_ruling_cannot_waive_a_test_key_refusal() {
             ("PROBATOR_RULINGS_ANCHOR", &anchor),
         ],
     );
-    assert!(
-        !ruled.status.success(),
-        "a signed verdict ruling cannot waive the test-key refusal"
-    );
     let stdout = String::from_utf8_lossy(&ruled.stdout);
     assert!(
-        stdout.contains("unappealable deterministic findings stand"),
+        ruled.status.success(),
+        "the adjudicated refusal yields to a signed verdict ruling; stderr: {}\nstdout: {stdout}",
+        String::from_utf8_lossy(&ruled.stderr)
+    );
+    assert!(
+        stdout.contains("outcome waived by signed operator ruling"),
         "{stdout}"
-    );
-    assert!(!stdout.contains("outcome waived by signed operator ruling"));
-
-    // Control: the identical ledger on the identical tree waives an
-    // appealable deterministic refusal — the ruling channel itself works.
-    let mut contract: serde_json::Value = serde_json::from_str(CONTRACT).unwrap();
-    contract["stage1"] = serde_json::json!({
-        "label": "deterministic",
-        "rules": [{
-            "id": "no-api-key",
-            "title": "API_KEY is forbidden",
-            "kind": "regex",
-            "pattern": "API_KEY",
-            "target": "revision-lines"
-        }]
-    });
-    std::fs::write(
-        root.join("plugin/contract.json"),
-        serde_json::to_string_pretty(&contract).unwrap(),
-    )
-    .unwrap();
-    git(&repo, &["branch", "-f", "nightly", &head]);
-    let waived = run_gate_env(
-        &root,
-        &repo,
-        &base,
-        &head,
-        &[
-            ("PROBATOR_RULINGS_LEDGER", &ledger),
-            ("PROBATOR_RULINGS_ANCHOR", &anchor),
-        ],
-    );
-    assert!(
-        waived.status.success(),
-        "an appealable refusal still yields to the same ruling; stderr: {}\nstdout: {}",
-        String::from_utf8_lossy(&waived.stderr),
-        String::from_utf8_lossy(&waived.stdout)
-    );
-    assert!(
-        String::from_utf8_lossy(&waived.stdout)
-            .contains("deterministic refusal waived by signed verdict ruling")
     );
 }
 

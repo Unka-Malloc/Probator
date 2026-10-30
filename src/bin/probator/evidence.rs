@@ -269,6 +269,10 @@ pub struct Evidence {
     diffs: HashMap<String, String>,
     diff_progress: HashMap<String, usize>,
     reviewed: HashSet<String>,
+    /// The deterministic suspects awaiting adjudication, scope-carried with
+    /// their evidence blob, and the ones already inspected.
+    adjudications: Vec<Value>,
+    adjudicated: HashSet<String>,
 }
 
 impl Evidence {
@@ -321,6 +325,12 @@ impl Evidence {
             changed,
             kind: text("kind"),
             surfaces: scope.get("surfaces").cloned().unwrap_or_else(|| json!([])),
+            adjudications: scope
+                .get("adjudications")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
+            adjudicated: HashSet::new(),
             order,
             entries,
             diffs: HashMap::new(),
@@ -339,6 +349,52 @@ impl Evidence {
         &self.reviewed
     }
 
+    /// The deterministic suspects the verdict must adjudicate, in the form
+    /// the inventory lists them: identifier, location and rule — never the
+    /// matched content itself.
+    pub fn adjudications(&self) -> &[Value] {
+        &self.adjudications
+    }
+
+    /// The adjudication items whose evidence the reviewer opened.
+    pub fn adjudicated(&self) -> &HashSet<String> {
+        &self.adjudicated
+    }
+
+    /// `adjudication`: the evidence one deterministic suspect stands on —
+    /// the matched line with its surrounding context, read from the blob the
+    /// static stage recorded. Serving the item marks it inspected; the
+    /// verdict cannot answer an item the reviewer never opened.
+    pub fn adjudication(&mut self, id: &str) -> Result<Value, String> {
+        let Some(item) = self
+            .adjudications
+            .iter()
+            .find(|item| item["id"].as_str() == Some(id))
+        else {
+            return Err("Unknown adjudication item".to_string());
+        };
+        let oid = item["blob"].as_str().unwrap_or("");
+        let output = git(&self.repo, &["cat-file", "blob", oid])?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let lines: Vec<&str> = text.lines().collect();
+        let line = item["line"].as_u64().unwrap_or(0) as usize;
+        let lo = line.saturating_sub(4).max(1);
+        let hi = (line + 4).min(lines.len());
+        let context = (lo..=hi)
+            .filter(|number| *number <= lines.len())
+            .map(|number| format!("{number:>6}  {}", lines[number - 1]))
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.adjudicated.insert(id.to_string());
+        Ok(json!({
+            "item": id,
+            "path": item["path"],
+            "line": line,
+            "rule": item["rule"],
+            "context": context,
+        }))
+    }
+
     /// `inventory`: the review's mode, its range, and the contract's domains.
     pub fn inventory(&self, contract: &Contract, catalog: Option<&Map<String, Value>>) -> Value {
         let mut reply = Map::new();
@@ -354,6 +410,24 @@ impl Evidence {
             .is_some_and(|stage1| stage1.surfaces)
         {
             reply.insert("surfaces".into(), self.surfaces.clone());
+        }
+        if !self.adjudications.is_empty() {
+            reply.insert(
+                "adjudications".into(),
+                json!(
+                    self.adjudications
+                        .iter()
+                        .map(|item| {
+                            json!({
+                                "item": item["id"],
+                                "path": item["path"],
+                                "line": item["line"],
+                                "rule": item["rule"],
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                ),
+            );
         }
         Value::Object(reply)
     }

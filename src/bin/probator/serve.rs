@@ -215,10 +215,18 @@ impl Server {
             if let Some(documents) = &self.documents {
                 fetched.extend(documents.fetched());
             }
+            let adjudication_required: Vec<String> = self
+                .evidence
+                .adjudications()
+                .iter()
+                .filter_map(|item| item["id"].as_str().map(str::to_string))
+                .collect();
             let state = ReviewState {
                 changed: self.evidence.changed(),
                 reviewed: self.evidence.reviewed(),
                 fetched: &fetched,
+                adjudications: &adjudication_required,
+                adjudicated: self.evidence.adjudicated(),
             };
             submit::validate(&self.contract, &state, args)?;
             self.submitted = true;
@@ -319,6 +327,9 @@ impl Server {
             "find" => self
                 .evidence
                 .find(args["text"].as_str().unwrap_or(""), args["offset"].as_i64()),
+            "adjudication" => self
+                .evidence
+                .adjudication(args["item"].as_str().unwrap_or("")),
             _ => Err("Unknown context operation".to_string()),
         }
     }

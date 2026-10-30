@@ -45,7 +45,7 @@
    },
    {
     "id": "test-key-generation",
-    "title": "Keys used in tests are generated at run time, never written as literal defaults; the refusal admits no ruling",
+    "title": "Keys used in tests are generated at run time, never written as literal defaults; suspects are adjudicated by the reviewer and confirmed material refuses",
     "kind": "builtin",
     "builtin": "test-key-generation"
    }
@@ -63,13 +63,14 @@
    "list",
    "diff",
    "read",
-   "find"
+   "find",
+   "adjudication"
   ],
   "submit": true,
   "descriptions": {
-   "context": "Inspect the immutable outgoing range. Start with inventory, then diff every changed file to its end; read is {read_page_lines} lines with start; find is a literal search over the range. Credential containers are unavailable by design.",
+   "context": "Inspect the immutable outgoing range. Start with inventory — it lists every adjudication item the deterministic stage could not classify, each opened with the adjudication operation — then diff every changed file to its end; read is {read_page_lines} lines with start; find is a literal search over the range. Credential containers are unavailable by design.",
    "submit": "Submit the final privacy verdict once, with every domain and every standing item accounted for."
   }
  },
- "task": "Review the outgoing changes with the Privacy Cleaner tools and submit one final verdict: start with inventory, read every changed diff to its end, then judge all six domains and every standing item — whether the project's tooling keeps its data out of the range, whether its parameters live in configuration rather than in code, and whether every file's subject belongs to this repository rather than a different one. No arbitrary turn or time limit applies."
+ "task": "Review the outgoing changes with the Privacy Cleaner tools and submit one final verdict: start with inventory, read every changed diff to its end, then judge all six domains and every standing item — whether the project's tooling keeps its data out of the range, whether its parameters live in configuration rather than in code, and whether every file's subject belongs to this repository rather than a different one. Every adjudication item must be opened with the adjudication operation and answered in the verdict's adjudications list — key: true for literal test-key material (a blocking finding), key: false with the reason the line is an identifier, a protocol field or another non-secret. No arbitrary turn or time limit applies."
 }

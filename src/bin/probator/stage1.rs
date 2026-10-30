@@ -77,6 +77,39 @@ impl Target {
     }
 }
 
+/// A deterministic suspect the stage cannot judge on its own: a key-shaped
+/// name bound to a literal might be test key material or an identifier, a
+/// protocol field or a scope name. The reviewer inspects each one through
+/// the adjudication operation and answers it in the verdict; the answer is
+/// recorded under the item's fingerprint (`id`), so an unchanged line is
+/// never asked about twice and a touched line is judged again.
+#[derive(Clone)]
+pub struct Adjudication {
+    /// sha256 of rule, path and the trimmed matched line.
+    pub id: String,
+    pub path: String,
+    pub line: u64,
+    pub rule: String,
+    /// The blob the line was read from; the adjudication operation serves
+    /// the item's evidence from it. Internal to the run scope - never
+    /// echoed to a report or the console.
+    pub blob: String,
+}
+
+impl Adjudication {
+    pub fn to_json(&self) -> Value {
+        json!({"id": self.id, "path": self.path, "line": self.line, "rule": self.rule})
+    }
+
+    /// The scope form: the blob oid rides along so the evidence server can
+    /// answer the adjudication operation without a second object lookup.
+    pub(crate) fn to_scope_json(&self) -> Value {
+        let mut item = self.to_json();
+        item["blob"] = json!(self.blob);
+        item
+    }
+}
+
 /// One target's outcome. `surfaces` is Some only for a checker whose contract
 /// echoes them to the semantic stage.
 pub struct Summary {
@@ -85,6 +118,9 @@ pub struct Summary {
     pub status: String,
     pub hits: Vec<Hit>,
     pub surfaces: Option<Vec<Hit>>,
+    /// Deterministic suspects the reviewer must adjudicate: Some whenever a
+    /// rule emits them, independent of the surfaces echo.
+    pub adjudications: Option<Vec<Adjudication>>,
     pub refused: String,
 }
 
@@ -100,6 +136,14 @@ impl Summary {
         });
         if let Some(surfaces) = &self.surfaces {
             summary["surfaces"] = json!(surfaces.iter().map(Hit::to_json).collect::<Vec<_>>());
+        }
+        if let Some(adjudications) = &self.adjudications {
+            summary["adjudications"] = json!(
+                adjudications
+                    .iter()
+                    .map(Adjudication::to_json)
+                    .collect::<Vec<_>>()
+            );
         }
         summary
     }
@@ -117,8 +161,10 @@ impl Summary {
 
 /// The refusal no signed ruling can commute. Rules are listed here only
 /// when every finding they emit has a mechanical remediation the operator
-/// cannot reasonably adjudicate away.
-pub const UNAPPEALABLE_RULES: [&str; 1] = ["test-key-default"];
+/// cannot reasonably adjudicate away. Suspects that need judgement - like a
+/// key-shaped name that may only be an identifier - are adjudication items,
+/// not unappealable refusals.
+pub const UNAPPEALABLE_RULES: [&str; 0] = [];
 
 /// Machine-local inputs the builtins consult. The withheld-names list lives
 /// outside every repository: the rule is public, the names it withholds are
@@ -564,14 +610,14 @@ fn machine_roots(overrides: Option<&Vec<String>>) -> Vec<String> {
         }
     }
     roots.push("/var/_folders/".to_string());
-    if let Some(host) = machine_hostname() {
-        if host.len() >= 3 {
-            roots.push(host.clone());
-            if let Some((short, _)) = host.split_once('.') {
-                if short.len() >= 3 {
-                    roots.push(short.to_string());
-                }
-            }
+    if let Some(host) = machine_hostname()
+        && host.len() >= 3
+    {
+        roots.push(host.clone());
+        if let Some((short, _)) = host.split_once('.')
+            && short.len() >= 3
+        {
+            roots.push(short.to_string());
         }
     }
     roots.sort();
@@ -1665,8 +1711,17 @@ fn is_test_path(path: &str) -> bool {
 
 /// One test-context line check over a blob: `.rs` sources join the context
 /// at their `#[cfg(test)]` module, every other file follows its path alone.
-/// `path` classifies the context; `label` is what a hit reports.
-fn scan_test_blob(path: &str, label: &str, blob: &[u8], hits: &mut Vec<Hit>) -> bool {
+/// A match is a suspect the stage cannot classify - a key-shaped name bound
+/// to a literal may be key material or only an identifier - so it becomes an
+/// adjudication item the reviewer answers, fingerprinted on the trimmed
+/// line so an identical suspect is never judged twice.
+fn scan_test_blob(
+    path: &str,
+    oid: &str,
+    blob: &[u8],
+    items: &mut Vec<Adjudication>,
+    seen: &mut std::collections::HashSet<String>,
+) -> bool {
     if is_binary(blob, 8000) {
         return true;
     }
@@ -1682,25 +1737,31 @@ fn scan_test_blob(path: &str, label: &str, blob: &[u8], hits: &mut Vec<Hit>) -> 
         if !test_key_line(line) {
             continue;
         }
-        hits.push(Hit {
-            path: label.to_string(),
+        let id = crate::util::sha256(&format!("test-key-default\n{path}\n{}", line.trim()));
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        items.push(Adjudication {
+            id,
+            path: path.to_string(),
             line: number as u64 + 1,
             rule: "test-key-default".to_string(),
-            remedy: Some("mint it in code; test keys are generated at run time, never defaulted"),
+            blob: oid.to_string(),
         });
-        if hits.len() >= MAX_HITS {
-            return false;
-        }
     }
     true
 }
 
 /// The test-key sweep, one coupled pass: the head tree's test files plus
 /// every test blob the range introduces. Keys a test uses are minted at run
-/// time; a literal default written into the revision is refused outright and
-/// the hit's rule keeps it out of every waiver.
-fn test_keys_audit(repo: &str, target: &Target) -> Result<Vec<Hit>, String> {
-    let mut hits = Vec::new();
+/// time. A literal default written into the revision cannot be told apart
+/// from an identifier or a protocol field by shape alone, so every suspect
+/// is reported as an adjudication item: the reviewer inspects and answers
+/// each one, a confirmed key stands as a blocking finding, and an answered
+/// fingerprint is never asked about again while its line is unchanged.
+fn test_keys_audit(repo: &str, target: &Target) -> Result<Vec<Adjudication>, String> {
+    let mut items = Vec::new();
+    let mut seen: std::collections::HashSet<String> = Default::default();
     let mut scanned: std::collections::HashSet<String> = Default::default();
     let mut files: Vec<(String, String)> = Vec::new();
     for (path, mode, oid) in ls_tree_entries(repo, &target.head)? {
@@ -1715,8 +1776,8 @@ fn test_keys_audit(repo: &str, target: &Target) -> Result<Vec<Hit>, String> {
     }
     let oids: Vec<String> = files.iter().map(|(_, oid)| oid.clone()).collect();
     for_each_blob(repo, &oids, |index, blob| {
-        let path = &files[index].0;
-        Ok(scan_test_blob(path, path, blob, &mut hits))
+        let (path, oid) = &files[index];
+        Ok(scan_test_blob(path, oid, blob, &mut items, &mut seen))
     })?;
     // The history pass, same contract as the credential sweep: a test key
     // committed inside the range and deleted before the head is still
@@ -1760,12 +1821,11 @@ fn test_keys_audit(repo: &str, target: &Target) -> Result<Vec<Hit>, String> {
             let specs: Vec<String> = objects.iter().map(|(oid, _)| oid.clone()).collect();
             for_each_blob(repo, &specs, |index, blob| {
                 let (oid, path) = &objects[index];
-                let label = format!("{path} (range blob {oid})");
-                Ok(scan_test_blob(path, &label, blob, &mut hits))
+                Ok(scan_test_blob(path, oid, blob, &mut items, &mut seen))
             })?;
         }
     }
-    Ok(hits)
+    Ok(items)
 }
 
 // ---------------------------------------------------------------------------
@@ -3767,6 +3827,7 @@ pub fn audit(
 ) -> Result<Summary, String> {
     let mut hits = Vec::new();
     let mut surfaces: Option<Vec<Hit>> = None;
+    let mut adjudications: Option<Vec<Adjudication>> = None;
     let mut status = "clean".to_string();
     let mut refused = String::new();
     // Changed-path and diff inputs are paid for only when some rule
@@ -3870,11 +3931,7 @@ pub fn audit(
                 "test-key-generation" => {
                     let found = test_keys_audit(repo, target)?;
                     if !found.is_empty() {
-                        status = "refused".into();
-                        if refused.is_empty() {
-                            refused = "test-key-default".to_string();
-                        }
-                        hits.extend(found);
+                        adjudications.get_or_insert_with(Vec::new).extend(found);
                     }
                 }
                 other => {
@@ -3893,6 +3950,7 @@ pub fn audit(
         status,
         hits,
         surfaces: if with_surfaces { surfaces } else { None },
+        adjudications,
         refused,
     })
 }
@@ -4459,10 +4517,11 @@ mod tests {
         }
     }
 
-    /// A test file's literal key is refused on the head tree — by directory
-    /// and by filename convention alike.
+    /// A test file's literal key suspect becomes an adjudication item on the
+    /// head tree — by directory and by filename convention alike — never a
+    /// refusal the stage could not justify.
     #[test]
-    fn a_literal_test_key_is_refused() {
+    fn a_literal_test_key_is_adjudicated() {
         let guard = CaseDir(std::env::temp_dir().join(format!(
             "gv-testkey-{}-{}",
             std::process::id(),
@@ -4494,43 +4553,61 @@ mod tests {
         let head = commit_all(root, "keys");
 
         let target = range_target(String::new(), head);
-        let hits = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        let items = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
         assert!(
-            hits.iter()
-                .any(|h| h.rule == "test-key-default" && h.path == "tests/test_keys.py"),
-            "tests/ literal is refused: {:?}",
-            hits.iter().map(|h| &h.rule).collect::<Vec<_>>()
+            items
+                .iter()
+                .any(|i| i.rule == "test-key-default" && i.path == "tests/test_keys.py"),
+            "tests/ literal is adjudicated: {:?}",
+            items.iter().map(|i| &i.rule).collect::<Vec<_>>()
         );
         assert!(
-            hits.iter()
-                .any(|h| h.rule == "test-key-default" && h.path == "src/util.rs" && h.line == 4),
+            items
+                .iter()
+                .any(|i| i.rule == "test-key-default" && i.path == "src/util.rs" && i.line == 4),
             "the #[cfg(test)] module is test context: {:?}",
-            hits.iter()
-                .map(|h| format!("{}:{}", h.path, h.line))
+            items
+                .iter()
+                .map(|i| format!("{}:{}", i.path, i.line))
                 .collect::<Vec<_>>()
         );
         assert_eq!(
-            hits.len(),
+            items.len(),
             2,
             "generated keys stand: {}",
-            hits.iter()
-                .map(|h| format!("{}:{}", h.path, h.line))
+            items
+                .iter()
+                .map(|i| format!("{}:{}", i.path, i.line))
                 .collect::<Vec<_>>()
                 .join(", ")
+        );
+        // Fingerprints are stable across a rescan, so a recorded answer is
+        // found again while the line is unchanged.
+        let again = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        assert_eq!(
+            items.iter().map(|i| &i.id).collect::<Vec<_>>(),
+            again.iter().map(|i| &i.id).collect::<Vec<_>>(),
         );
         let summary = Summary {
             label: "range".into(),
             scope: "range".into(),
-            status: "refused".into(),
-            hits,
+            status: "clean".into(),
+            hits: Vec::new(),
             surfaces: None,
-            refused: "test-key-default".into(),
+            adjudications: Some(items),
+            refused: String::new(),
         };
-        assert!(summary.unappealable());
+        assert!(!summary.unappealable());
+        assert_eq!(
+            summary.to_json()["adjudications"].as_array().unwrap().len(),
+            2
+        );
     }
 
     /// A test key committed inside the range and deleted before the head is
-    /// still published history — the range-blob pass cannot miss it.
+    /// still published history — the range-blob pass cannot miss it. The
+    /// item keeps the real path; its blob is the historical object, which is
+    /// where the adjudication operation reads the evidence.
     #[test]
     fn a_test_key_removed_inside_the_range_is_still_scanned() {
         let guard = CaseDir(std::env::temp_dir().join(format!(
@@ -4551,20 +4628,32 @@ mod tests {
             format!("SECRET = \"{material}\"\n"),
         )
         .unwrap();
-        commit_all(root, "middle");
+        let middle = commit_all(root, "middle");
         std::fs::remove_file(root.join("tests/test_auth.py")).unwrap();
         let head = commit_all(root, "head");
 
         let target = range_target(base, head);
-        let hits = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        let items = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        let item = items
+            .iter()
+            .find(|i| i.rule == "test-key-default" && i.path == "tests/test_auth.py");
         assert!(
-            hits.iter()
-                .any(|h| h.rule == "test-key-default" && h.path.contains("range blob")),
+            item.is_some(),
             "the middle commit's test blob is scanned: {}",
-            hits.iter()
-                .map(|h| format!("{}:{}", h.path, h.rule))
+            items
+                .iter()
+                .map(|i| format!("{}:{}", i.path, i.rule))
                 .collect::<Vec<_>>()
                 .join(", ")
+        );
+        let removed_blob = git(
+            root,
+            &["rev-parse", &format!("{middle}:tests/test_auth.py")],
+        );
+        assert_eq!(
+            item.unwrap().blob,
+            removed_blob,
+            "the evidence is the historical blob the line was read from"
         );
     }
 
