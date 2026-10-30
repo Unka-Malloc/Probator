@@ -439,6 +439,37 @@ fn waivers_with(
     (waived, verdict_waived)
 }
 
+/// Whether a certified verdict ruling accepts this checker's outcome for
+/// `head`. The deterministic stage consults this before refusing: an armed
+/// ruling lets the audit continue, so the sealed report still records the
+/// deterministic hits and the gate names the ruling that waived them.
+/// Findings-level rulings never apply here — a stage-one refusal carries
+/// no report coordinates to bind.
+pub fn verdict_waived(checker: &str, repo_slug: &str, head: &str) -> bool {
+    let (Some(ledger), Some(anchor)) = (ledger_path(), anchor_path()) else {
+        return false;
+    };
+    verdict_waived_with(
+        &load_rulings_at(&ledger, &anchor),
+        checker,
+        repo_slug,
+        head,
+    )
+}
+
+/// The pure matching half of `verdict_waived`, kept beside `waivers_with`
+/// so both apply the identical binding rule: checker, overruled verdict,
+/// head, and an empty or matching repository slug.
+fn verdict_waived_with(rulings: &[Ruling], checker: &str, repo_slug: &str, head: &str) -> bool {
+    rulings.iter().any(|ruling| {
+        ruling.kind == "verdict"
+            && ruling.verdict == "overruled"
+            && ruling.checker == checker
+            && ruling.head == head
+            && (ruling.repo.is_empty() || ruling.repo == repo_slug)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -808,5 +839,50 @@ mod tests {
             "abc",
         );
         assert!(waived.is_empty() && !verdict_waived);
+    }
+
+    #[test]
+    fn a_verdict_ruling_waives_the_bound_head() {
+        let mut r = ruling("checker", "verdict");
+        r.head = "abc".into();
+        assert!(verdict_waived_with(&[r], "checker", "owner/repo", "abc"));
+    }
+
+    #[test]
+    fn a_verdict_ruling_ignores_another_head() {
+        let mut r = ruling("checker", "verdict");
+        r.head = "abc".into();
+        assert!(!verdict_waived_with(&[r], "checker", "owner/repo", "def"));
+    }
+
+    #[test]
+    fn a_verdict_ruling_ignores_another_checker_and_repo() {
+        let mut r = ruling("checker", "verdict");
+        r.head = "abc".into();
+        assert!(!verdict_waived_with(&[r.clone()], "other", "owner/repo", "abc"));
+        assert!(!verdict_waived_with(&[r], "checker", "other/repo", "abc"));
+    }
+
+    #[test]
+    fn an_unbound_verdict_ruling_covers_any_repo() {
+        let mut r = ruling("checker", "verdict");
+        r.head = "abc".into();
+        r.repo = String::new();
+        assert!(verdict_waived_with(&[r], "checker", "any/repo", "abc"));
+    }
+
+    #[test]
+    fn a_sustained_or_finding_ruling_never_waives_the_verdict() {
+        let mut sustained = ruling("checker", "verdict");
+        sustained.head = "abc".into();
+        sustained.verdict = "sustained".into();
+        let mut finding = ruling("checker", "finding");
+        finding.head = "abc".into();
+        assert!(!verdict_waived_with(
+            &[sustained, finding],
+            "checker",
+            "owner/repo",
+            "abc"
+        ));
     }
 }
