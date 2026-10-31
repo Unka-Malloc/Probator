@@ -1727,8 +1727,10 @@ fn is_test_path(path: &str) -> bool {
 /// continue onto the next line, so the state persists.
 #[derive(Default)]
 struct RsLex {
-    /// Nested `/* */` depth - Rust block comments nest.
-    block_comment: u8,
+    /// Nested `/* */` depth - Rust block comments nest, and the counter is
+    /// saturating so no depth of delimiters can wrap comment text back into
+    /// counted syntax.
+    block_comment: usize,
     /// Inside a `"…"` literal that ran past the line end.
     string: bool,
     /// Inside an `r"…"` / `r#"…"#` raw string: `Some` is active, the value
@@ -1751,7 +1753,7 @@ impl RsLex {
         while i < bytes.len() {
             if self.block_comment > 0 {
                 if bytes[i..].starts_with(b"/*") {
-                    self.block_comment += 1;
+                    self.block_comment = self.block_comment.saturating_add(1);
                     i += 2;
                 } else if bytes[i..].starts_with(b"*/") {
                     self.block_comment -= 1;
@@ -1877,19 +1879,21 @@ fn scan_test_blob(
     let mut lex = RsLex::default();
     let mut depth: i64 = 0;
     let mut attr_pending = false;
+    let mut item_open = false;
     let mut test_close_at: Option<i64> = None;
     for (number, line) in String::from_utf8_lossy(blob).lines().enumerate() {
         let (code, opens, closes) = lex.scan(line);
-        // A `;`-terminated gated item (a `const`, a `use`, a `mod`
-        // declaration) is test context for its own line alone.
-        let mut single_line = false;
+        let depth_before = depth;
+        // `item_line`: this line is the gated item's own text without a
+        // brace body - its head, continuation, or terminating `;`.
+        let mut item_line = false;
         if !test_context && rust {
-            let head = if attr_pending {
+            // The gated item's head text this line: continuation while an
+            // item is mid-span, or whatever follows `#[…]` on the
+            // attribute line itself.
+            let head = if attr_pending || item_open {
                 Some(code.as_str())
             } else if opens_test_module(line) {
-                attr_pending = true;
-                // `#[cfg(test)] mod tests {` carries its item head on the
-                // attribute line itself, after the closing `]`.
                 code.find(']').map(|index| &code[index + 1..])
             } else {
                 None
@@ -1897,20 +1901,35 @@ fn scan_test_blob(
             if let Some(head) = head {
                 let trimmed = head.trim();
                 if trimmed.is_empty() || trimmed.starts_with('#') {
-                    // Blank lines and further attributes still belong to
-                    // the gated item's header.
-                } else if trimmed.ends_with(';') {
+                    // Blank lines and further attributes belong to the
+                    // gated item's header while it has not begun; inside a
+                    // mid-span item they are still its own text.
+                    attr_pending = !item_open;
+                    item_line = item_open;
+                } else if opens > 0 {
+                    // The item opens a brace body: context until the depth
+                    // returns to this level.
                     attr_pending = false;
-                    single_line = true;
-                } else if trimmed.contains('{') {
-                    attr_pending = false;
-                    test_close_at = Some(depth);
+                    item_open = false;
+                    test_close_at = Some(depth_before);
                     test_context = true;
+                } else if trimmed.ends_with(';') {
+                    // The `;` terminates the gated item; the line itself is
+                    // still its own test context.
+                    attr_pending = false;
+                    item_open = false;
+                    item_line = true;
+                } else {
+                    // A bodiless item mid-span (`const X: &str =`,
+                    // `fn f(`): every line is context until a `;` ends it
+                    // or a `{` turns it into a body.
+                    attr_pending = false;
+                    item_open = true;
+                    item_line = true;
                 }
-                // Otherwise the item's head spans more lines; keep waiting.
             }
         }
-        let in_context = test_context || single_line;
+        let in_context = test_context || item_line;
         depth += opens - closes;
         if test_close_at.is_some_and(|close| depth <= close) {
             test_context = false;
@@ -5080,6 +5099,100 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![4],
             "the escaped quote stays a char literal; the brace still closes: {:?}",
+            items
+                .iter()
+                .map(|i| format!("{}:{}", i.path, i.line))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// A gated item with no brace body - a `const` whose declaration and
+    /// value span lines - is context for its whole span: every line until
+    /// the terminating `;` counts, including the ones carrying the binding.
+    #[test]
+    fn a_multiline_gated_item_is_context_for_its_whole_span() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-testkey-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let material = ["deadbeef", "00112233"].concat();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!(
+                "#[cfg(test)]\n\
+                 const KEY: &str = \"{material}\"\n\
+                 \x20   .trim();\n\
+                 const LIVE_KEY: &str = \"{material}\";\n"
+            ),
+        )
+        .unwrap();
+        let head = commit_all(root, "keys");
+
+        let target = range_target(String::new(), head);
+        let items = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .filter(|i| i.path == "src/lib.rs")
+                .map(|i| i.line)
+                .collect::<Vec<_>>(),
+            vec![2],
+            "the mid-item binding line is context: {:?}",
+            items
+                .iter()
+                .map(|i| format!("{}:{}", i.path, i.line))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// Rust block comments nest and the depth counter saturates: a
+    /// deluge of `/*` inside the module cannot wrap comment text back into
+    /// counted syntax and drop the binding that follows it.
+    #[test]
+    fn a_deep_comment_deluge_cannot_wrap_the_depth() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-testkey-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let material = ["deadbeef", "00112233"].concat();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let open = "/*".repeat(300);
+        let close = "*/".repeat(300);
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!(
+                "#[cfg(test)]\n\
+                 mod tests {{\n\
+                 \x20   {open} }} {close}\n\
+                 \x20   const KEY: &str = \"{material}\";\n\
+                 }}\n\
+                 const LIVE_KEY: &str = \"{material}\";\n"
+            ),
+        )
+        .unwrap();
+        let head = commit_all(root, "keys");
+
+        let target = range_target(String::new(), head);
+        let items = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .filter(|i| i.path == "src/lib.rs")
+                .map(|i| i.line)
+                .collect::<Vec<_>>(),
+            vec![4],
+            "the binding after the deluge is still scanned: {:?}",
             items
                 .iter()
                 .map(|i| format!("{}:{}", i.path, i.line))
