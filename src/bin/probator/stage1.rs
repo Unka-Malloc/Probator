@@ -1744,11 +1744,13 @@ impl RsLex {
     /// One lexical pass over the line: `code` is its surface text with
     /// comment bodies dropped and any `//` that sits outside literals
     /// ending it - a `//` inside `"http://…"` is content, not a comment -
-    /// and the two counts are the `{`/`}` that are syntax, so the caller's
-    /// item-head judgement and depth balance read the same view.
-    fn scan(&mut self, line: &str) -> (String, i64, i64) {
+    /// the two counts are the `{`/`}` that are syntax, and `events` keeps
+    /// their byte positions in order so a depth that returns mid-line can
+    /// bound the context to the part before the closing brace.
+    fn scan(&mut self, line: &str) -> (String, i64, i64, Vec<(usize, i64)>) {
         let bytes = line.as_bytes();
         let mut code = Vec::with_capacity(bytes.len());
+        let mut events = Vec::new();
         let (mut opens, mut closes, mut i) = (0i64, 0i64, 0usize);
         while i < bytes.len() {
             if self.block_comment > 0 {
@@ -1798,11 +1800,13 @@ impl RsLex {
             match bytes[i] {
                 b'{' => {
                     opens += 1;
+                    events.push((i, 1));
                     code.push(b'{');
                     i += 1;
                 }
                 b'}' => {
                     closes += 1;
+                    events.push((i, -1));
                     code.push(b'}');
                     i += 1;
                 }
@@ -1854,7 +1858,12 @@ impl RsLex {
                 }
             }
         }
-        (String::from_utf8_lossy(&code).into_owned(), opens, closes)
+        (
+            String::from_utf8_lossy(&code).into_owned(),
+            opens,
+            closes,
+            events,
+        )
     }
 }
 
@@ -1882,7 +1891,7 @@ fn scan_test_blob(
     let mut item_open = false;
     let mut test_close_at: Option<i64> = None;
     for (number, line) in String::from_utf8_lossy(blob).lines().enumerate() {
-        let (code, opens, closes) = lex.scan(line);
+        let (code, opens, closes, events) = lex.scan(line);
         let depth_before = depth;
         // `item_line`: this line is the gated item's own text without a
         // brace body - its head, continuation, or terminating `;`.
@@ -1931,14 +1940,25 @@ fn scan_test_blob(
         }
         let in_context = test_context || item_line;
         depth += opens - closes;
-        if test_close_at.is_some_and(|close| depth <= close) {
+        // The context ends at the brace that returns the depth, not at the
+        // line's end: code sharing the closing line is production.
+        let mut bound = line.len();
+        if let Some(close) = test_close_at.filter(|&close| depth <= close) {
+            let mut running = depth_before;
+            for &(pos, delta) in &events {
+                running += delta;
+                if running <= close {
+                    bound = pos;
+                    break;
+                }
+            }
             test_context = false;
             test_close_at = None;
         }
         if !in_context {
             continue;
         }
-        if !test_key_line(line) {
+        if !test_key_line(&line[..bound]) {
             continue;
         }
         let id = crate::util::sha256(&format!("test-key-default\n{path}\n{}", line.trim()));
@@ -5193,6 +5213,45 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![4],
             "the binding after the deluge is still scanned: {:?}",
+            items
+                .iter()
+                .map(|i| format!("{}:{}", i.path, i.line))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// The gated context ends at the closing brace, not at the line: a
+    /// binding sharing the line after the module's `}` is production code
+    /// and stays out of the test-key sweep.
+    #[test]
+    fn a_key_after_the_closing_brace_on_the_same_line_is_production() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-testkey-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let material = ["deadbeef", "00112233"].concat();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!(
+                "#[cfg(test)]\n\
+                 mod tests {{ }} const KEY: &str = \"{material}\";\n\
+                 const LIVE_KEY: &str = \"{material}\";\n"
+            ),
+        )
+        .unwrap();
+        let head = commit_all(root, "keys");
+
+        let target = range_target(String::new(), head);
+        let items = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        assert!(
+            items.iter().all(|i| i.path != "src/lib.rs"),
+            "no binding after the close is swept: {:?}",
             items
                 .iter()
                 .map(|i| format!("{}:{}", i.path, i.line))
