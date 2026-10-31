@@ -544,7 +544,9 @@ fn checker_block(contract: &Contract, target: &Path) -> Result<String, String> {
 /// Install a checker from its source directory (`tools/<checker>/`).
 pub fn install(source: &Path) -> Result<String, String> {
     let contract = contract::load(&source.join("contract.json"))?;
-    let (Some(runner), Some(review)) = (installed_tool("probator-agent"), installed_tool("probator")) else {
+    let (Some(runner), Some(review)) =
+        (installed_tool("probator-agent"), installed_tool("probator"))
+    else {
         return Err("probator and probator-agent (the A4AA runner) are required".to_string());
     };
     let (document, program) = materialized_registry(&contract)?;
@@ -618,7 +620,9 @@ const RETIRED_PAYLOAD: [&str; 10] = [
 /// re-register its entry; the retired Python payload files leave with it.
 pub fn update(source: &Path) -> Result<String, String> {
     let contract = contract::load(&source.join("contract.json"))?;
-    let (Some(runner), Some(review)) = (installed_tool("probator-agent"), installed_tool("probator")) else {
+    let (Some(runner), Some(review)) =
+        (installed_tool("probator-agent"), installed_tool("probator"))
+    else {
         return Err("probator and probator-agent (the A4AA runner) are required".to_string());
     };
     let (document, program) = materialized_registry(&contract)?;
