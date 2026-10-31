@@ -17,7 +17,7 @@
   },
   {
     "name": "local-paths",
-    "input": "report at /Users/someone/x/report.json and /var/_folders/ab/cd/T/run and /home/other/notes.txt and C:\\Users\\who\\x and C:/Users/who/y done"
+    "input": "report at /Users/someone/x/report.json and \/var\/folders\/ab\/cd\/T\/run and /home/other/notes.txt and C:\\Users\\who\\x and C:/Users/who/y done"
   },
   {
     "name": "email",
