@@ -1731,8 +1731,11 @@ struct RsLex {
     block_comment: u8,
     /// Inside a `"…"` literal that ran past the line end.
     string: bool,
-    /// Inside an `r#"…"#` raw string: the hash count framing it, 0 when not.
-    raw_string: u8,
+    /// Inside an `r"…"` / `r#"…"#` raw string: `Some` is active, the value
+    /// the hash count framing it - `Some(0)` is a plain `r"…"`, so activity
+    /// is kept apart from the delimiter width. Byte raw strings (`br"…"`)
+    /// arrive through the same `r` arm.
+    raw_string: Option<usize>,
 }
 
 impl RsLex {
@@ -1765,13 +1768,12 @@ impl RsLex {
                 }
                 continue;
             }
-            if self.raw_string > 0 {
-                let hashes = self.raw_string as usize;
+            if let Some(hashes) = self.raw_string {
                 if bytes[i] == b'"'
                     && i + 1 + hashes <= bytes.len()
                     && bytes[i + 1..i + 1 + hashes].iter().all(|&b| b == b'#')
                 {
-                    self.raw_string = 0;
+                    self.raw_string = None;
                     i += 1 + hashes;
                 } else {
                     i += 1;
@@ -1798,10 +1800,10 @@ impl RsLex {
                 }
                 b'r' => {
                     // `r"` / `r#"` / `r##"` open a raw string; any other `r`
-                    // leads an identifier.
+                    // leads an identifier or a raw identifier (`r#match`).
                     let hashes = bytes[i + 1..].iter().take_while(|&&b| b == b'#').count();
                     if bytes.get(i + 1 + hashes) == Some(&b'"') {
-                        self.raw_string = hashes as u8;
+                        self.raw_string = Some(hashes);
                         i += 2 + hashes;
                     } else {
                         i += 1;
@@ -4954,8 +4956,9 @@ mod tests {
     }
 
     /// Braces inside Rust literals and comments are prose: a `"}}"`
-    /// literal, a `'}'` char or a `/* { */` inside the module must not tip
-    /// the depth balance and drop the real key binding that follows them.
+    /// literal, a `'}'` char, a `/* { */` or a raw string - zero-hash
+    /// `r"…"` and `br"…"` included - inside the module must not tip the
+    /// depth balance and drop the real key binding that follows them.
     #[test]
     fn literal_and_comment_braces_do_not_tip_the_depth() {
         let guard = CaseDir(std::env::temp_dir().join(format!(
@@ -4979,6 +4982,8 @@ mod tests {
                  \x20   const CH: char = '}}';\n\
                  \x20   /* {{ nested /* inside */ }} */\n\
                  \x20   let raw = r##\"}} still prose\"##;\n\
+                 \x20   let bare = r\"}} zero hashes\";\n\
+                 \x20   let bytes = br\"}} byte raw\";\n\
                  \x20   const KEY: &str = \"{material}\";\n\
                  }}\n\
                  const LIVE_KEY: &str = \"{material}\";\n"
@@ -4995,7 +5000,7 @@ mod tests {
                 .filter(|i| i.path == "src/lib.rs")
                 .map(|i| i.line)
                 .collect::<Vec<_>>(),
-            vec![8],
+            vec![10],
             "only the real binding reports; literal braces are prose: {:?}",
             items
                 .iter()
