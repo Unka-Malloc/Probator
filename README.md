@@ -16,7 +16,7 @@ the gate blocked; it cannot produce a passing receipt without the evidence.
 Probator is an independent project with its own policy, receipts and
 release line.
 
-Probator is an optional local audit tool, like GitVault, not a member or prerequisite of the SilverBoom infrastructure matrix. It may consume shared adapters without making those adapters depend on Probator. Repository-content review, checker policy and sealed audit receipts belong here; AOR owns workflow gate semantics and consumes host-supplied evidence rather than implementing another reviewer engine. A locally enabled audit remains binding for that operator, but installation is not required to build or use the infrastructure libraries.
+Probator is an optional local audit tool, not a member or prerequisite of the release orchestration infrastructure. It may consume shared adapters without making those adapters depend on Probator. Repository-content review, checker policy and sealed audit receipts belong here; the orchestrator owns workflow gate semantics and consumes host-supplied evidence rather than implementing another reviewer engine. A locally enabled audit remains binding for that operator, but installation is not required to build or use the infrastructure libraries.
 
 ## Layout
 
