@@ -1712,11 +1712,14 @@ fn is_test_path(path: &str) -> bool {
 }
 
 /// One test-context line check over a blob: `.rs` sources join the context
-/// at their `#[cfg(test)]` module, every other file follows its path alone.
-/// A match is a suspect the stage cannot classify - a key-shaped name bound
-/// to a literal may be key material or only an identifier - so it becomes an
-/// adjudication item the reviewer answers, fingerprinted on the trimmed
-/// line so an identical suspect is never judged twice.
+/// at their `#[cfg(test)]` item and leave it when that item's closing brace
+/// returns the file's depth to the level the body opened at, so production
+/// code after an inline test module is not swept in with it; every other
+/// file follows its path alone. A match is a suspect the stage cannot
+/// classify - a key-shaped name bound to a literal may be key material or
+/// only an identifier - so it becomes an adjudication item the reviewer
+/// answers, fingerprinted on the trimmed line so an identical suspect is
+/// never judged twice.
 fn scan_test_blob(
     path: &str,
     oid: &str,
@@ -1729,11 +1732,54 @@ fn scan_test_blob(
     }
     let rust = path.ends_with(".rs");
     let mut test_context = is_test_path(path);
+    // A `#[cfg(test)]` attribute gates the one item that follows it, not the
+    // file's remainder: `depth` tracks the brace balance, `attr_pending`
+    // waits for the gated item's head past blanks and stacked attributes,
+    // and `test_close_at` is the depth the gated body returns to. Braces in
+    // `//` tails are prose - commented-out code must not skew the balance;
+    // braces left inside string literals are counted, the same line-level
+    // fidelity the sweep already uses.
+    let mut depth: i64 = 0;
+    let mut attr_pending = false;
+    let mut test_close_at: Option<i64> = None;
     for (number, line) in String::from_utf8_lossy(blob).lines().enumerate() {
-        if !test_context {
-            if rust && opens_test_module(line) {
-                test_context = true;
+        let code = line.split("//").next().unwrap_or("");
+        // A `;`-terminated gated item (a `const`, a `use`, a `mod`
+        // declaration) is test context for its own line alone.
+        let mut single_line = false;
+        if !test_context && rust {
+            let head = if attr_pending {
+                Some(code)
+            } else if opens_test_module(line) {
+                attr_pending = true;
+                // `#[cfg(test)] mod tests {` carries its item head on the
+                // attribute line itself, after the closing `]`.
+                code.find(']').map(|index| &code[index + 1..])
+            } else {
+                None
+            };
+            if let Some(head) = head {
+                let trimmed = head.trim();
+                if trimmed.is_empty() || trimmed.starts_with('#') {
+                    // Blank lines and further attributes still belong to
+                    // the gated item's header.
+                } else if trimmed.ends_with(';') {
+                    attr_pending = false;
+                    single_line = true;
+                } else if trimmed.contains('{') {
+                    attr_pending = false;
+                    test_close_at = Some(depth);
+                    test_context = true;
+                }
+                // Otherwise the item's head spans more lines; keep waiting.
             }
+        }
+        depth += code.matches('{').count() as i64 - code.matches('}').count() as i64;
+        if test_close_at.is_some_and(|close| depth <= close) {
+            test_context = false;
+            test_close_at = None;
+        }
+        if !test_context && !single_line {
             continue;
         }
         if !test_key_line(line) {
@@ -4656,6 +4702,101 @@ mod tests {
             item.unwrap().blob,
             removed_blob,
             "the evidence is the historical blob the line was read from"
+        );
+    }
+
+    /// `#[cfg(test)]` gates the one item that follows it: when the inline
+    /// module's closing brace lands, the lines after it are production code
+    /// again. A key literal that lives after the module must not be reported
+    /// as a test key - the sweep once kept the context open to end of file.
+    #[test]
+    fn test_context_ends_at_the_gated_items_closing_brace() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-testkey-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let material = ["deadbeef", "00112233"].concat();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!(
+                "pub fn prod() -> u8 {{ 1 }}\n\
+                 #[cfg(test)]\n\
+                 mod tests {{\n\
+                 \x20   const KEY: &str = \"{material}\";\n\
+                 }}\n\
+                 const LIVE_KEY: &str = \"{material}\";\n\
+                 pub fn after() -> u8 {{ 2 }}\n"
+            ),
+        )
+        .unwrap();
+        let head = commit_all(root, "keys");
+
+        let target = range_target(String::new(), head);
+        let items = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .filter(|i| i.path == "src/lib.rs")
+                .map(|i| i.line)
+                .collect::<Vec<_>>(),
+            vec![4],
+            "only the literal inside the module is test context: {:?}",
+            items
+                .iter()
+                .map(|i| format!("{}:{}", i.path, i.line))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// A `;`-terminated item under `#[cfg(test)]` - a `const` binding, a
+    /// `use`, a `mod` declaration - is test context for its own line alone;
+    /// the same-line and next-line gated forms both end where the item ends.
+    #[test]
+    fn a_bodiless_gated_item_is_test_context_for_one_line() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-testkey-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let material = ["deadbeef", "00112233"].concat();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!(
+                "#[cfg(test)]\n\
+                 const TEST_KEY: &str = \"{material}\";\n\
+                 const LIVE_KEY: &str = \"{material}\";\n\
+                 #[cfg(test)] const INLINE_KEY: &str = \"{material}\";\n\
+                 const LIVE_KEY2: &str = \"{material}\";\n"
+            ),
+        )
+        .unwrap();
+        let head = commit_all(root, "keys");
+
+        let target = range_target(String::new(), head);
+        let items = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .filter(|i| i.path == "src/lib.rs")
+                .map(|i| i.line)
+                .collect::<Vec<_>>(),
+            vec![2, 4],
+            "each gated item answers for its own line only: {:?}",
+            items
+                .iter()
+                .map(|i| format!("{}:{}", i.path, i.line))
+                .collect::<Vec<_>>()
         );
     }
 
