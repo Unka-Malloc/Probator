@@ -16,6 +16,8 @@ the gate blocked; it cannot produce a passing receipt without the evidence.
 Probator is an independent project with its own policy, receipts and
 release line.
 
+Probator is an optional local audit tool, like GitVault, not a member or prerequisite of the SilverBoom infrastructure matrix. It may consume shared adapters without making those adapters depend on Probator. Repository-content review, checker policy and sealed audit receipts belong here; AOR owns workflow gate semantics and consumes host-supplied evidence rather than implementing another reviewer engine. A locally enabled audit remains binding for that operator, but installation is not required to build or use the infrastructure libraries.
+
 ## Layout
 
 - `src/bin/probator.rs` + `src/bin/probator/*` — the audit engine
@@ -63,6 +65,8 @@ profile directory; `probator-agent` resolves it at run start.
 - `probator eval` — score recorded runs into a checker x architecture matrix
 - `probator install` / `update` / `pull` — manage installed checkers and
   their published profile documents
+- `probator self-update` — rebuild the engine, swap the immutable-flagged
+  binaries in one sudo step, and reinstall every installed checker
 - `probator validate` / `manifest` / `stage1` / `snapshot` / `serve` /
   `sanitize` / `baseline` / `full-audit` — the contract and run machinery
   the gate is built from

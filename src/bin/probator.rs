@@ -59,6 +59,8 @@ mod records;
 mod sanitize;
 #[path = "../seal.rs"]
 mod seal;
+#[path = "probator/self_update.rs"]
+mod self_update;
 #[path = "probator/serve.rs"]
 mod serve;
 #[path = "probator/stage1.rs"]
@@ -249,6 +251,18 @@ enum Command {
         /// A specific published tag.
         #[arg(long)]
         tag: Option<String>,
+    },
+    /// Update the installed engine and every installed checker in one
+    /// step: build the release binaries, swap them under the immutable
+    /// flag lock (one sudo prompt), then reinstall each checker from
+    /// its tools/<name>/ source.
+    SelfUpdate {
+        /// The Probator source checkout; defaults to the current directory.
+        #[arg(long)]
+        source: Option<PathBuf>,
+        /// The install prefix holding bin/probator; defaults to ~/.local.
+        #[arg(long)]
+        root: Option<PathBuf>,
     },
 }
 
@@ -560,6 +574,22 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Command::SelfUpdate { source, root } => {
+            let root = root.unwrap_or_else(|| self_update::home().join(".local"));
+            let source = source.unwrap_or_default();
+            match self_update::self_update(&source, &root) {
+                Ok(lines) => {
+                    for line in lines {
+                        println!("{line}");
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(message) => {
+                    eprintln!("{message}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
     }
 }
 

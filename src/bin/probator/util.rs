@@ -7,7 +7,13 @@ use std::path::PathBuf;
 /// hashes. One implementation: a digest the installer writes and the engine
 /// re-checks must come from the same code.
 pub(crate) fn sha256(text: &str) -> String {
-    sha2::Sha256::digest(text.as_bytes())
+    sha256_bytes(text.as_bytes())
+}
+
+/// Hex SHA-256 of a raw byte payload - the installed-binary hash reported
+/// by `self-update` cannot round-trip through text.
+pub(crate) fn sha256_bytes(bytes: &[u8]) -> String {
+    sha2::Sha256::digest(bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
