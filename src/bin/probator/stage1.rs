@@ -1720,6 +1720,113 @@ fn is_test_path(path: &str) -> bool {
 /// only an identifier - so it becomes an adjudication item the reviewer
 /// answers, fingerprinted on the trimmed line so an identical suspect is
 /// never judged twice.
+/// Rust lexical state the sweep carries across lines: braces that live
+/// inside comments, string literals, char literals or raw strings are
+/// prose, not syntax - `"}`, `'}'` and `/* { */` must not tip a gated
+/// item's depth balance. Normal strings and nested `/* */` comments may
+/// continue onto the next line, so the state persists.
+#[derive(Default)]
+struct RsLex {
+    /// Nested `/* */` depth - Rust block comments nest.
+    block_comment: u8,
+    /// Inside a `"…"` literal that ran past the line end.
+    string: bool,
+    /// Inside an `r#"…"#` raw string: the hash count framing it, 0 when not.
+    raw_string: u8,
+}
+
+impl RsLex {
+    /// The `{`/`}` in this line that count toward item depth: every brace
+    /// outside comments and literals, in order.
+    fn braces(&mut self, line: &str) -> (i64, i64) {
+        let bytes = line.as_bytes();
+        let (mut opens, mut closes, mut i) = (0i64, 0i64, 0usize);
+        while i < bytes.len() {
+            if self.block_comment > 0 {
+                if bytes[i..].starts_with(b"/*") {
+                    self.block_comment += 1;
+                    i += 2;
+                } else if bytes[i..].starts_with(b"*/") {
+                    self.block_comment -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+            if self.string {
+                match bytes[i] {
+                    b'\\' => i += 2,
+                    b'"' => {
+                        self.string = false;
+                        i += 1;
+                    }
+                    _ => i += 1,
+                }
+                continue;
+            }
+            if self.raw_string > 0 {
+                let hashes = self.raw_string as usize;
+                if bytes[i] == b'"'
+                    && i + 1 + hashes <= bytes.len()
+                    && bytes[i + 1..i + 1 + hashes].iter().all(|&b| b == b'#')
+                {
+                    self.raw_string = 0;
+                    i += 1 + hashes;
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+            match bytes[i] {
+                b'{' => {
+                    opens += 1;
+                    i += 1;
+                }
+                b'}' => {
+                    closes += 1;
+                    i += 1;
+                }
+                b'/' if bytes[i + 1..].starts_with(b"/") => break,
+                b'/' if bytes[i + 1..].starts_with(b"*") => {
+                    self.block_comment = 1;
+                    i += 2;
+                }
+                b'"' => {
+                    self.string = true;
+                    i += 1;
+                }
+                b'r' => {
+                    // `r"` / `r#"` / `r##"` open a raw string; any other `r`
+                    // leads an identifier.
+                    let hashes = bytes[i + 1..].iter().take_while(|&&b| b == b'#').count();
+                    if bytes.get(i + 1 + hashes) == Some(&b'"') {
+                        self.raw_string = hashes as u8;
+                        i += 2 + hashes;
+                    } else {
+                        i += 1;
+                    }
+                }
+                b'\'' => {
+                    // `'x'`, `'\n'`, `'\u{7b}'` are char literals; `'a` and
+                    // `'static` are lifetimes and carry no braces.
+                    let rest = &bytes[i + 1..];
+                    let literal = if rest.first() == Some(&b'\\') {
+                        rest[1..].iter().position(|&b| b == b'\'').map(|p| p + 3)
+                    } else if rest.get(1) == Some(&b'\'') {
+                        Some(3)
+                    } else {
+                        None
+                    };
+                    i += literal.unwrap_or(1);
+                }
+                _ => i += 1,
+            }
+        }
+        (opens, closes)
+    }
+}
+
 fn scan_test_blob(
     path: &str,
     oid: &str,
@@ -1733,12 +1840,12 @@ fn scan_test_blob(
     let rust = path.ends_with(".rs");
     let mut test_context = is_test_path(path);
     // A `#[cfg(test)]` attribute gates the one item that follows it, not the
-    // file's remainder: `depth` tracks the brace balance, `attr_pending`
-    // waits for the gated item's head past blanks and stacked attributes,
-    // and `test_close_at` is the depth the gated body returns to. Braces in
-    // `//` tails are prose - commented-out code must not skew the balance;
-    // braces left inside string literals are counted, the same line-level
-    // fidelity the sweep already uses.
+    // file's remainder: `depth` tracks the lexical brace balance,
+    // `attr_pending` waits for the gated item's head past blanks and stacked
+    // attributes, and `test_close_at` is the depth the gated body returns
+    // to. A body that opens and closes on one line still counts that line
+    // as test context - the context is judged before the close clears it.
+    let mut lex = RsLex::default();
     let mut depth: i64 = 0;
     let mut attr_pending = false;
     let mut test_close_at: Option<i64> = None;
@@ -1774,12 +1881,14 @@ fn scan_test_blob(
                 // Otherwise the item's head spans more lines; keep waiting.
             }
         }
-        depth += code.matches('{').count() as i64 - code.matches('}').count() as i64;
+        let in_context = test_context || single_line;
+        let (opens, closes) = lex.braces(line);
+        depth += opens - closes;
         if test_close_at.is_some_and(|close| depth <= close) {
             test_context = false;
             test_close_at = None;
         }
-        if !test_context && !single_line {
+        if !in_context {
             continue;
         }
         if !test_key_line(line) {
@@ -4793,6 +4902,101 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![2, 4],
             "each gated item answers for its own line only: {:?}",
+            items
+                .iter()
+                .map(|i| format!("{}:{}", i.path, i.line))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// A gated body that opens and closes on one line still counts that
+    /// line as test context - the context is judged before the close clears
+    /// it, so `#[cfg(test)] mod tests { const KEY… }` reports its binding.
+    #[test]
+    fn a_same_line_gated_module_is_scanned_in_context() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-testkey-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let material = ["deadbeef", "00112233"].concat();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!(
+                "pub fn prod() -> u8 {{ 1 }}\n\
+                 #[cfg(test)] mod tests {{ const KEY: &str = \"{material}\"; }}\n\
+                 const LIVE_KEY: &str = \"{material}\";\n"
+            ),
+        )
+        .unwrap();
+        let head = commit_all(root, "keys");
+
+        let target = range_target(String::new(), head);
+        let items = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .filter(|i| i.path == "src/lib.rs")
+                .map(|i| i.line)
+                .collect::<Vec<_>>(),
+            vec![2],
+            "the one-line module's binding is test context: {:?}",
+            items
+                .iter()
+                .map(|i| format!("{}:{}", i.path, i.line))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// Braces inside Rust literals and comments are prose: a `"}}"`
+    /// literal, a `'}'` char or a `/* { */` inside the module must not tip
+    /// the depth balance and drop the real key binding that follows them.
+    #[test]
+    fn literal_and_comment_braces_do_not_tip_the_depth() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-testkey-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let material = ["deadbeef", "00112233"].concat();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!(
+                "pub fn prod() -> u8 {{ 1 }}\n\
+                 #[cfg(test)]\n\
+                 mod tests {{\n\
+                 \x20   const ODD: &str = \"}}}}}}{{{{\";\n\
+                 \x20   const CH: char = '}}';\n\
+                 \x20   /* {{ nested /* inside */ }} */\n\
+                 \x20   let raw = r##\"}} still prose\"##;\n\
+                 \x20   const KEY: &str = \"{material}\";\n\
+                 }}\n\
+                 const LIVE_KEY: &str = \"{material}\";\n"
+            ),
+        )
+        .unwrap();
+        let head = commit_all(root, "keys");
+
+        let target = range_target(String::new(), head);
+        let items = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .filter(|i| i.path == "src/lib.rs")
+                .map(|i| i.line)
+                .collect::<Vec<_>>(),
+            vec![8],
+            "only the real binding reports; literal braces are prose: {:?}",
             items
                 .iter()
                 .map(|i| format!("{}:{}", i.path, i.line))
