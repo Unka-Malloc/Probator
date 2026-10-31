@@ -1739,10 +1739,14 @@ struct RsLex {
 }
 
 impl RsLex {
-    /// The `{`/`}` in this line that count toward item depth: every brace
-    /// outside comments and literals, in order.
-    fn braces(&mut self, line: &str) -> (i64, i64) {
+    /// One lexical pass over the line: `code` is its surface text with
+    /// comment bodies dropped and any `//` that sits outside literals
+    /// ending it - a `//` inside `"http://…"` is content, not a comment -
+    /// and the two counts are the `{`/`}` that are syntax, so the caller's
+    /// item-head judgement and depth balance read the same view.
+    fn scan(&mut self, line: &str) -> (String, i64, i64) {
         let bytes = line.as_bytes();
+        let mut code = Vec::with_capacity(bytes.len());
         let (mut opens, mut closes, mut i) = (0i64, 0i64, 0usize);
         while i < bytes.len() {
             if self.block_comment > 0 {
@@ -1759,20 +1763,29 @@ impl RsLex {
             }
             if self.string {
                 match bytes[i] {
-                    b'\\' => i += 2,
+                    b'\\' => {
+                        code.extend_from_slice(&bytes[i..(i + 2).min(bytes.len())]);
+                        i += 2;
+                    }
                     b'"' => {
                         self.string = false;
+                        code.push(b'"');
                         i += 1;
                     }
-                    _ => i += 1,
+                    _ => {
+                        code.push(bytes[i]);
+                        i += 1;
+                    }
                 }
                 continue;
             }
             if let Some(hashes) = self.raw_string {
+                code.push(bytes[i]);
                 if bytes[i] == b'"'
                     && i + 1 + hashes <= bytes.len()
                     && bytes[i + 1..i + 1 + hashes].iter().all(|&b| b == b'#')
                 {
+                    code.extend_from_slice(&bytes[i + 1..i + 1 + hashes]);
                     self.raw_string = None;
                     i += 1 + hashes;
                 } else {
@@ -1783,10 +1796,12 @@ impl RsLex {
             match bytes[i] {
                 b'{' => {
                     opens += 1;
+                    code.push(b'{');
                     i += 1;
                 }
                 b'}' => {
                     closes += 1;
+                    code.push(b'}');
                     i += 1;
                 }
                 b'/' if bytes[i + 1..].starts_with(b"/") => break,
@@ -1796,6 +1811,7 @@ impl RsLex {
                 }
                 b'"' => {
                     self.string = true;
+                    code.push(b'"');
                     i += 1;
                 }
                 b'r' => {
@@ -1804,28 +1820,39 @@ impl RsLex {
                     let hashes = bytes[i + 1..].iter().take_while(|&&b| b == b'#').count();
                     if bytes.get(i + 1 + hashes) == Some(&b'"') {
                         self.raw_string = Some(hashes);
+                        code.extend_from_slice(&bytes[i..i + 2 + hashes]);
                         i += 2 + hashes;
                     } else {
+                        code.push(b'r');
                         i += 1;
                     }
                 }
                 b'\'' => {
-                    // `'x'`, `'\n'`, `'\u{7b}'` are char literals; `'a` and
-                    // `'static` are lifetimes and carry no braces.
+                    // `'x'`, `'\n'`, `'\''`, `'\u{7b}'` are char literals;
+                    // `'a` and `'static` are lifetimes and carry no braces.
                     let rest = &bytes[i + 1..];
                     let literal = if rest.first() == Some(&b'\\') {
-                        rest[1..].iter().position(|&b| b == b'\'').map(|p| p + 3)
+                        // The escape consumes at least `\` plus one char, so
+                        // the earliest closing quote is at rest index 2 -
+                        // `'\''` is 4 bytes and must not leave a dangling
+                        // quote to pair with a later `'…'` and swallow a `}`.
+                        rest.iter().skip(2).position(|&b| b == b'\'').map(|p| p + 4)
                     } else if rest.get(1) == Some(&b'\'') {
                         Some(3)
                     } else {
                         None
                     };
-                    i += literal.unwrap_or(1);
+                    let consumed = literal.unwrap_or(1);
+                    code.extend_from_slice(&bytes[i..i + consumed]);
+                    i += consumed;
                 }
-                _ => i += 1,
+                _ => {
+                    code.push(bytes[i]);
+                    i += 1;
+                }
             }
         }
-        (opens, closes)
+        (String::from_utf8_lossy(&code).into_owned(), opens, closes)
     }
 }
 
@@ -1852,13 +1879,13 @@ fn scan_test_blob(
     let mut attr_pending = false;
     let mut test_close_at: Option<i64> = None;
     for (number, line) in String::from_utf8_lossy(blob).lines().enumerate() {
-        let code = line.split("//").next().unwrap_or("");
+        let (code, opens, closes) = lex.scan(line);
         // A `;`-terminated gated item (a `const`, a `use`, a `mod`
         // declaration) is test context for its own line alone.
         let mut single_line = false;
         if !test_context && rust {
             let head = if attr_pending {
-                Some(code)
+                Some(code.as_str())
             } else if opens_test_module(line) {
                 attr_pending = true;
                 // `#[cfg(test)] mod tests {` carries its item head on the
@@ -1884,7 +1911,6 @@ fn scan_test_blob(
             }
         }
         let in_context = test_context || single_line;
-        let (opens, closes) = lex.braces(line);
         depth += opens - closes;
         if test_close_at.is_some_and(|close| depth <= close) {
             test_context = false;
@@ -4888,7 +4914,10 @@ mod tests {
                  const TEST_KEY: &str = \"{material}\";\n\
                  const LIVE_KEY: &str = \"{material}\";\n\
                  #[cfg(test)] const INLINE_KEY: &str = \"{material}\";\n\
-                 const LIVE_KEY2: &str = \"{material}\";\n"
+                 const LIVE_KEY2: &str = \"{material}\";\n\
+                 #[cfg(test)]\n\
+                 const URL_KEY: &str = \"http://inside-literal.example\";\n\
+                 const LIVE_KEY3: &str = \"{material}\";\n"
             ),
         )
         .unwrap();
@@ -4902,8 +4931,9 @@ mod tests {
                 .filter(|i| i.path == "src/lib.rs")
                 .map(|i| i.line)
                 .collect::<Vec<_>>(),
-            vec![2, 4],
-            "each gated item answers for its own line only: {:?}",
+            vec![2, 4, 7],
+            "each gated item answers for its own line only - the `//` inside \
+             the URL literal is content, not a comment: {:?}",
             items
                 .iter()
                 .map(|i| format!("{}:{}", i.path, i.line))
@@ -5002,6 +5032,54 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![10],
             "only the real binding reports; literal braces are prose: {:?}",
+            items
+                .iter()
+                .map(|i| format!("{}:{}", i.path, i.line))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// An escaped char literal sitting right before the gated item's
+    /// closing brace consumes exactly its own bytes - `'\''` is four bytes,
+    /// not three plus a dangling quote - so the closing brace still lands
+    /// and production code after the item stays production.
+    #[test]
+    fn an_escaped_char_literal_cannot_leave_a_dangling_quote() {
+        let guard = CaseDir(std::env::temp_dir().join(format!(
+            "gv-testkey-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )));
+        let root = &guard.0;
+        std::fs::create_dir_all(root).unwrap();
+        git(root, &["init", "-q"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        let material = ["deadbeef", "00112233"].concat();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!(
+                "#[cfg(test)]\n\
+                 mod tests {{\n\
+                 \x20   const QUOTE: char = '\\'';\n\
+                 \x20   const KEY: &str = \"{material}\";\n\
+                 }}\n\
+                 const LIVE_KEY: &str = \"{material}\";\n"
+            ),
+        )
+        .unwrap();
+        let head = commit_all(root, "keys");
+
+        let target = range_target(String::new(), head);
+        let items = test_keys_audit(root.to_str().unwrap(), &target).unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .filter(|i| i.path == "src/lib.rs")
+                .map(|i| i.line)
+                .collect::<Vec<_>>(),
+            vec![4],
+            "the escaped quote stays a char literal; the brace still closes: {:?}",
             items
                 .iter()
                 .map(|i| format!("{}:{}", i.path, i.line))
