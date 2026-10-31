@@ -281,7 +281,8 @@
         "toolsApproval": {
           "key": "default_tools_approval_mode",
           "value": "approve"
-        }
+        },
+        "toolsApprovalServers": ["probator-audit"]
       },
       "command": {
         "program": {
@@ -393,13 +394,11 @@
     "{checker}-pi": {
       "agent": "pi",
       "model": "openai/gpt-6-luna",
-      "effort": "max",
       "permission": "read-only"
     },
     "{checker}-codex": {
       "agent": "codex",
       "model": "openai/gpt-6-luna",
-      "effort": "max",
       "mcpServers": [
         {
           "name": "probator-audit",
