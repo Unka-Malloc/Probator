@@ -301,6 +301,21 @@ fn which(name: &str) -> Option<String> {
     })
 }
 
+/// The engine the registry rows name. The fixed `~/.local/bin` install is
+/// the trusted helper the publication gate invokes, so a registry written
+/// from a development build must still point there — never at whatever
+/// binary happened to run `install`.
+fn installed_tool(name: &str) -> Option<String> {
+    let canonical = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+        .join(".local")
+        .join("bin")
+        .join(name);
+    if canonical.is_file() {
+        return Some(canonical.to_string_lossy().into_owned());
+    }
+    which(name)
+}
+
 /// Add or replace this checker's registry entry. Replacing rather than
 /// refusing keeps an installed checker updatable: the command embeds absolute
 /// paths, so a machine that refused to touch an existing entry would be
@@ -508,9 +523,10 @@ fn install_payload(source: &Path, target: &Path, contract: &Contract) -> Result<
 /// The registry block for one checker, in the signed config's own shape.
 fn checker_block(contract: &Contract, target: &Path) -> Result<String, String> {
     let events = serde_json::to_string(&contract.on).map_err(|e| e.to_string())?;
-    let runner = std::env::current_exe().map_err(|e| e.to_string())?;
+    let runner = installed_tool("probator")
+        .ok_or_else(|| "the installed probator engine is required".to_string())?;
     let command = json!([
-        runner.to_string_lossy(),
+        runner,
         "run",
         "--contract",
         target.join("contract.json").to_string_lossy(),
@@ -528,7 +544,7 @@ fn checker_block(contract: &Contract, target: &Path) -> Result<String, String> {
 /// Install a checker from its source directory (`tools/<checker>/`).
 pub fn install(source: &Path) -> Result<String, String> {
     let contract = contract::load(&source.join("contract.json"))?;
-    let (Some(runner), Some(review)) = (which("probator-agent"), which("probator")) else {
+    let (Some(runner), Some(review)) = (installed_tool("probator-agent"), installed_tool("probator")) else {
         return Err("probator and probator-agent (the A4AA runner) are required".to_string());
     };
     let (document, program) = materialized_registry(&contract)?;
@@ -602,7 +618,7 @@ const RETIRED_PAYLOAD: [&str; 10] = [
 /// re-register its entry; the retired Python payload files leave with it.
 pub fn update(source: &Path) -> Result<String, String> {
     let contract = contract::load(&source.join("contract.json"))?;
-    let (Some(runner), Some(review)) = (which("probator-agent"), which("probator")) else {
+    let (Some(runner), Some(review)) = (installed_tool("probator-agent"), installed_tool("probator")) else {
         return Err("probator and probator-agent (the A4AA runner) are required".to_string());
     };
     let (document, program) = materialized_registry(&contract)?;
