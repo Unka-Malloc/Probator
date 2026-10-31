@@ -319,6 +319,31 @@
           "items": {
             "type": "string"
           }
+        },
+        "adjudications": {
+          "type": "array",
+          "description": "One answer per pending adjudication item: `item` names the pending id, `key` is true only for confirmed key material, `reason` states the judgement.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "string"
+              },
+              "key": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "item",
+              "key",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [

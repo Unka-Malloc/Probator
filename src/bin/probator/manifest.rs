@@ -155,6 +155,28 @@ pub fn manifest(contract: &Contract, mode: Mode, projects: &[String]) -> Vec<Val
         "unknowns".into(),
         json!({"type": "array", "items": {"type": "string"}}),
     );
+    // Contracts whose context surface can raise adjudication items declare the
+    // answer shape the verdict validator enforces: one entry per pending item,
+    // `key` true only for confirmed key material.
+    if operations.iter().any(|op| op == "adjudication") {
+        submit_properties.insert(
+            "adjudications".into(),
+            json!({
+                "type": "array",
+                "description": "One answer per pending adjudication item: `item` names the pending id, `key` is true only for confirmed key material, `reason` states the judgement.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "item": {"type": "string"},
+                        "key": {"type": "boolean"},
+                        "reason": {"type": "string", "minLength": 1},
+                    },
+                    "required": ["item", "key", "reason"],
+                    "additionalProperties": false,
+                },
+            }),
+        );
+    }
     let mut required = vec!["verdict", "summary", "coverage", "findings", "unknowns"];
     // Money Saver advertises the per-project coverage whenever full-service is
     // offered - one submit schema shape in both modes, empty at the gate.

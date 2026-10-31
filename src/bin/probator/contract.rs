@@ -845,7 +845,7 @@ pub fn load(path: &Path) -> Result<Contract, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Contract, load};
+    use super::{BUILTINS, Contract, load};
     use serde_json::{Value, json};
 
     fn minimal() -> Value {
@@ -1185,5 +1185,74 @@ mod tests {
                 .contains("unreadable")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The published schema and the runtime's builtin registry must declare
+    /// the same deterministic checks: a contract naming a builtin the schema
+    /// omits is rejected by consumers validating against it. Every shipped
+    /// contract is loaded and its stage-1 builtins checked against the
+    /// schema's enum.
+    #[test]
+    fn shipped_contracts_follow_the_published_schema() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let schema: Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join("docs/review-contract.schema.json")).unwrap(),
+        )
+        .unwrap();
+
+        fn find_builtin_enum(node: &Value) -> Option<Vec<String>> {
+            match node {
+                Value::Object(map) => {
+                    if let Some(variants) = map.get("enum").and_then(Value::as_array)
+                        && variants
+                            .iter()
+                            .any(|v| v.as_str() == Some("commit-identity"))
+                    {
+                        return Some(
+                            variants
+                                .iter()
+                                .filter_map(|v| v.as_str().map(str::to_string))
+                                .collect(),
+                        );
+                    }
+                    map.values().find_map(find_builtin_enum)
+                }
+                Value::Array(items) => items.iter().find_map(find_builtin_enum),
+                _ => None,
+            }
+        }
+        let schema_builtins: std::collections::BTreeSet<_> = find_builtin_enum(&schema)
+            .expect("schema declares no builtin enum")
+            .into_iter()
+            .collect();
+        let runtime_builtins: std::collections::BTreeSet<_> =
+            BUILTINS.iter().map(|s| s.to_string()).collect();
+        assert_eq!(
+            schema_builtins, runtime_builtins,
+            "schema builtin enum and runtime registry disagree"
+        );
+
+        let tools = root.join("tools");
+        let mut shipped = 0;
+        for entry in std::fs::read_dir(&tools).unwrap() {
+            let contract_path = entry.unwrap().path().join("contract.json");
+            if !contract_path.is_file() {
+                continue;
+            }
+            shipped += 1;
+            let contract = load(&contract_path).unwrap();
+            if let Some(stage1) = &contract.stage1 {
+                for rule in &stage1.rules {
+                    if let Some(builtin) = &rule.builtin {
+                        assert!(
+                            schema_builtins.contains(builtin),
+                            "{}: builtin {builtin:?} is not in the published schema",
+                            contract.name
+                        );
+                    }
+                }
+            }
+        }
+        assert!(shipped > 0, "no shipped contracts under tools/");
     }
 }

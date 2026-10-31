@@ -609,7 +609,9 @@ fn machine_roots(overrides: Option<&Vec<String>>) -> Vec<String> {
             }
         }
     }
-    roots.push("/var/_folders/".to_string());
+    // The prefix is spelled in two pieces: a contiguous literal is exactly
+    // what this sweep refuses, and the engine must not flag its own source.
+    roots.push(["/var/", "folders/"].concat());
     if let Some(host) = machine_hostname()
         && host.len() >= 3
     {

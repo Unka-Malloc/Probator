@@ -173,7 +173,8 @@
                   "workspace-hygiene",
                   "static-checklist",
                   "dependency-direction",
-                  "commit-identity"
+                  "commit-identity",
+                  "test-key-generation"
                 ],
                 "description": "kind=builtin: a deterministic check the runtime ships as code; declared by name so the contract never carries executable text. Each builtin owns one coupled scan pass whose hit ordering and refusal priority are its semantics."
               }

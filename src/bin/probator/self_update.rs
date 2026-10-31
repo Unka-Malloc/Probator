@@ -154,10 +154,12 @@ pub fn self_update(source: &Path, root: &Path) -> Result<Vec<String>, String> {
 
     let profiles = install::profile_root();
     let mut lines = Vec::new();
+    let mut failed = false;
     for checker in installed_checkers(&source, &profiles) {
         match install::install(&checker) {
             Ok(message) => lines.push(message),
             Err(message) => {
+                failed = true;
                 lines.push(format!("{}: {message}", checker.display()));
             }
         }
@@ -175,6 +177,9 @@ pub fn self_update(source: &Path, root: &Path) -> Result<Vec<String>, String> {
         dst_agent.display(),
         sha256(&dst_agent)?
     ));
+    if failed {
+        return Err(lines.join("\n"));
+    }
     Ok(lines)
 }
 

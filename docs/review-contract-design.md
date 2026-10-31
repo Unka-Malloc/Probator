@@ -20,8 +20,9 @@ The `probator` binary (`src/bin/probator.rs` + `src/bin/probator/`):
   static-checklist, dependency-direction, commit-identity,
   test-key-generation) plus regex rules executed
   as data over a declared target. The builtins own one coupled scan pass each.
-  `test-key-generation` findings are unappealable: their rule sits in
-  `UNAPPEALABLE_RULES`, so a signed verdict ruling never commutes them.
+  `test-key-generation` suspects reach the sealed review as adjudication
+  items; confirmed key material refuses. `UNAPPEALABLE_RULES` lists no rule
+  today, so a signed verdict ruling commutes this refusal like any other.
 - `documents.rs` — the operator-curated official-document fetcher: catalog
   keys, listed URLs, and unlisted pages on a catalog host; query/fragment-free
   self-located URLs resolved only to public addresses; redirects pinned to the
