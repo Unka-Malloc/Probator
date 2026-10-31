@@ -1,6 +1,6 @@
 [package]
 name = "probator"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Checklist-contract audit engine: run an agent against a declared domain list, enforce per-item coverage mechanically, seal the verdict"
 license = "Apache-2.0"
